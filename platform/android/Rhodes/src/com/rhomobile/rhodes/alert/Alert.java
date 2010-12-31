@@ -370,5 +370,34 @@ public class Alert {
 			reportFail("playFile", e);
 		}
 	}
-	
+
+	public static void stop() {
+		try {
+			Logger.T(TAG, "stop");
+		    	if (currentMP == null) 
+			    return;
+
+			if(currentMP.isPlaying()){
+			  currentMP.stop();
+			}
+		}
+		catch (Exception e) {
+			reportFail("stop", e);
+		}
+	}
+	public static void loop() {
+		try {
+			Logger.T(TAG, "loop");
+		    	if (currentMP == null) 
+			    return;
+
+			if(!currentMP.isLooping()){
+			  currentMP.setLooping(true);
+			}
+		}
+		catch (Exception e) {
+			reportFail("loop", e);
+		}
+	}
+
 }

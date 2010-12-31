@@ -88,3 +88,24 @@ RHO_GLOBAL void alert_play_file(char* file_name, char *media_type)
     if (objMediaType) env->DeleteLocalRef(objMediaType);
 }
 
+
+RHO_GLOBAL void alert_stop()
+{
+    JNIEnv *env = jnienv();
+    jclass cls = getJNIClass(RHODES_JAVA_CLASS_ALERT);
+    if (!cls) return;
+    jmethodID mid = getJNIClassStaticMethod(env, cls, "stop", "()V");
+    if (!mid) return;
+    env->CallStaticVoidMethod(cls, mid);
+}
+
+RHO_GLOBAL void alert_loop()
+{
+    JNIEnv *env = jnienv();
+    jclass cls = getJNIClass(RHODES_JAVA_CLASS_ALERT);
+    if (!cls) return;
+    jmethodID mid = getJNIClassStaticMethod(env, cls, "loop", "()V");
+    if (!mid) return;
+    env->CallStaticVoidMethod(cls, mid);
+}
+
