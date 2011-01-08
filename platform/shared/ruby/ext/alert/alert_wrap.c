@@ -1821,6 +1821,9 @@ extern void alert_vibrate(void*);
 #define vibrate alert_vibrate
 extern void alert_play_file(char* file_name, ...);
 #define play_file alert_play_file 
+extern void show_status(char* szText, char* szHideLabel);
+#define show_status rho_alert_show_status
+
 extern void alert_stop();
 #define stop alert_stop
 extern void alert_loop();
@@ -1950,6 +1953,41 @@ _wrap_play_file(int argc, VALUE *argv, VALUE self) {
   return Qnil;
 fail:
   if (alloc1 == SWIG_NEWOBJ) free((char*)buf1);
+  return Qnil;
+}
+
+
+SWIGINTERN VALUE
+_wrap_show_status(int argc, VALUE *argv, VALUE self) {
+  char *arg1 = (char *) 0 ;
+  char *arg2 = (char *) 0 ;
+  int res1 ;
+  char *buf1 = 0 ;
+  int alloc1 = 0 ;
+  int res2 ;
+  char *buf2 = 0 ;
+  int alloc2 = 0 ;
+  
+  if ((argc < 2) || (argc > 2)) {
+    rb_raise(rb_eArgError, "wrong # of arguments(%d for 2)",argc); SWIG_fail;
+  }
+  res1 = SWIG_AsCharPtrAndSize(argv[0], &buf1, NULL, &alloc1);
+  if (!SWIG_IsOK(res1)) {
+    SWIG_exception_fail(SWIG_ArgError(res1), Ruby_Format_TypeError( "", "char *","show_status", 1, argv[0] ));
+  }
+  arg1 = (char *)(buf1);
+  res2 = SWIG_AsCharPtrAndSize(argv[1], &buf2, NULL, &alloc2);
+  if (!SWIG_IsOK(res2)) {
+    SWIG_exception_fail(SWIG_ArgError(res2), Ruby_Format_TypeError( "", "char *","show_status", 2, argv[1] ));
+  }
+  arg2 = (char *)(buf2);
+  show_status(arg1,arg2);
+  if (alloc1 == SWIG_NEWOBJ) free((char*)buf1);
+  if (alloc2 == SWIG_NEWOBJ) free((char*)buf2);
+  return Qnil;
+fail:
+  if (alloc1 == SWIG_NEWOBJ) free((char*)buf1);
+  if (alloc2 == SWIG_NEWOBJ) free((char*)buf2);
   return Qnil;
 }
 
@@ -2259,6 +2297,7 @@ SWIGEXPORT void Init_Alert(void) {
   rb_define_module_function(mAlert, "hide_popup", _wrap_hide_popup, -1);
   rb_define_module_function(mAlert, "vibrate", _wrap_vibrate, -1);
   rb_define_module_function(mAlert, "play_file", _wrap_play_file, -1);
+  rb_define_module_function(mAlert, "show_status", _wrap_show_status, -1);
   rb_define_module_function(mAlert, "stop", _wrap_stop, -1);
   rb_define_module_function(mAlert, "loop", _wrap_loop, -1);
 }

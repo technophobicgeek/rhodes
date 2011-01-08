@@ -134,7 +134,7 @@ public class DBAdapter extends RubyBasic
 	}
 	
 	public IDBResult executeSQLReportNonUnique(String strStatement, Object arg1, Object arg2, Object arg3, Object arg4)throws DBException{
-		LOG.TRACE("executeSQLReportNonUnique: " + strStatement);
+		//LOG.TRACE("executeSQLReportNonUnique: " + strStatement);
 		
 		Object[] values = {arg1,arg2,arg3,arg4};
 		IDBResult res = null;
@@ -150,7 +150,7 @@ public class DBAdapter extends RubyBasic
 	}
 
 	public IDBResult executeSQLReportNonUniqueEx(String strStatement, Vector vecValues)throws DBException{
-		LOG.TRACE("executeSQLReportNonUnique: " + strStatement);
+		//LOG.TRACE("executeSQLReportNonUnique: " + strStatement);
 		
 		Object[] values = new Object[vecValues.size()];
 		for (int i = 0; i < vecValues.size(); i++ )
@@ -248,7 +248,7 @@ public class DBAdapter extends RubyBasic
     
     private String getSqlScript()
     {
-    	return RhoConf.getInstance().loadFileFromJar("apps/db/syncdb.schema");
+    	return RhoFile.readStringFromJarFile("apps/db/syncdb.schema", this);
     }
     
     public void startTransaction()throws DBException
@@ -514,6 +514,9 @@ public class DBAdapter extends RubyBasic
 			DBAdapter.makeBlobFolderName(); //Create folder back
 			
             writeDBVersion(new DBVersion(strRhoDBVer, strAppDBVer) );
+            
+            if ( RhoConf.getInstance().isExist("bulksync_state") && RhoConf.getInstance().getInt("bulksync_state") != 0)
+            	RhoConf.getInstance().setInt("bulksync_state", 0, true);            
 		}
 		
 	}
@@ -1017,6 +1020,18 @@ public class DBAdapter extends RubyBasic
         return (DBAdapter)getDBPartitions().get(szPartition);
     }
 
+    public static Vector/*<String>*/ getDBAllPartitionNames()
+    {
+        Vector/*<String>*/ vecNames = new Vector();
+        Enumeration enumDBs = m_mapDBPartitions.keys();
+		while (enumDBs.hasMoreElements()) 
+		{
+			vecNames.addElement(enumDBs.nextElement());
+		}
+		
+        return vecNames;
+    }
+        
     public static boolean isAnyInsideTransaction()
     {
     	Enumeration enumDBs = m_mapDBPartitions.elements();

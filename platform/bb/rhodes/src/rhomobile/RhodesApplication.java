@@ -183,10 +183,10 @@ final public class RhodesApplication extends RhodesApplicationPlatform implement
         thread.start();                       
     }
     
-    void saveCurrentLocation(String url) {
+    void saveCurrentLocation(String url) 
+    {
     	if (RhoConf.getInstance().getBool("KeepTrackOfLastVisitedPage")) {
-			RhoConf.getInstance().setString("LastVisitedPage",url);
-			RhoConf.getInstance().saveToFile();
+			RhoConf.getInstance().setString("LastVisitedPage",url,true);
 			LOG.TRACE("Saved LastVisitedPage: " + url);
 		}   	
     }
@@ -374,6 +374,7 @@ final public class RhodesApplication extends RhodesApplicationPlatform implement
     private SyncStatusPopup _syncStatusPopup = null;
     
     private String _lastStatusMessage = null;
+    private String _hideStatus = null;
     
     //private HttpConnection  _currentConnection;
 
@@ -591,6 +592,8 @@ final public class RhodesApplication extends RhodesApplicationPlatform implement
 	        }
 	        
 	        RhoRuby.RhoRubyInitApp();
+	        RhoRuby.call_config_conflicts();
+	        RhoConf.getInstance().conflictsResolved();	        
     	}finally
     	{
 	        m_bRubyInit = true;
@@ -620,6 +623,25 @@ final public class RhodesApplication extends RhodesApplicationPlatform implement
 			_lastStatusMessage = null;
 		}
 	}
+
+	synchronized public void showStatus(String status, String hide) 
+	{
+		_lastStatusMessage = status;
+		_hideStatus = hide;
+		invokeLater( new Runnable() {
+			public void run() {
+				if (_syncStatusPopup != null) { 
+					_syncStatusPopup.showStatus(_lastStatusMessage);
+				}else
+				{
+					SyncStatusPopup popup = new SyncStatusPopup(_lastStatusMessage, _hideStatus);
+					RhodesApplication.getInstance().setSyncStatusPopup(popup);
+					pushScreen(popup);
+				}
+			}
+		});	
+				
+	}
 	
 	synchronized public void reportStatus(String status, int error) {
 		_lastStatusMessage = status;
@@ -633,7 +655,7 @@ final public class RhodesApplication extends RhodesApplicationPlatform implement
 					_syncStatusPopup.showStatus(_lastStatusMessage);
 				}else
 				{
-					SyncStatusPopup popup = new SyncStatusPopup(_lastStatusMessage);
+					SyncStatusPopup popup = new SyncStatusPopup(_lastStatusMessage, null);
 					RhodesApplication.getInstance().setSyncStatusPopup(popup);
 					pushScreen(popup);
 				}
@@ -647,7 +669,7 @@ final public class RhodesApplication extends RhodesApplicationPlatform implement
 		invokeLater( new Runnable() {
 			public void run() {
 				if (_syncStatusPopup == null) {
-					SyncStatusPopup popup = new SyncStatusPopup(_lastStatusMessage);
+					SyncStatusPopup popup = new SyncStatusPopup(_lastStatusMessage, null);
 					RhodesApplication.getInstance().setSyncStatusPopup(popup);
 					pushScreen(popup);
 				}
@@ -657,13 +679,16 @@ final public class RhodesApplication extends RhodesApplicationPlatform implement
 	
 	static class SyncStatusPopup extends PopupScreen {
 		LabelField _labelStatus;
-	    public SyncStatusPopup(String status) {
+	    public SyncStatusPopup(String status, String hide) {
 	        super( new VerticalFieldManager( Manager.NO_VERTICAL_SCROLL | Manager.NO_VERTICAL_SCROLLBAR) );
 			
 	        add(_labelStatus = new LabelField(status != null ? status : "", Field.FIELD_HCENTER));
 	        add(new LabelField(""));
 	        
-	        ButtonField hideButton = new ButtonField( RhoAppAdapter.getMessageText("hide"), Field.FIELD_HCENTER );
+	        if ( hide == null )
+	        	hide = RhoAppAdapter.getMessageText("hide");
+	        
+	        ButtonField hideButton = new ButtonField( hide, Field.FIELD_HCENTER );
 			hideButton.setChangeListener( new HideListener(this) );
 			add(hideButton);
 	    }

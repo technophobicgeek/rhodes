@@ -251,13 +251,16 @@ public class RhodesService extends Service {
 		if (Utils.isAppHashChanged()) {
 			try {
 				Log.i(TAG, "Application hash was changed, so remove files");
+				Utils.deleteChildrenIgnoreFirstLevel(new File(getRootPath(), "apps"), "rhoconfig.txt");
+				Utils.deleteRecursively(new File(getRootPath(), "lib"));
+/*				
 				String[] folders = {"apps", "lib"};
 				for (String folder : folders) {
 					File f = new File(getRootPath(), folder);
 					if (!f.exists())
 						continue;
 					Utils.deleteRecursively(f);
-				}
+				}*/
 				initRootPath();
 				RhoFileApi.init();
 				RhoFileApi.copy("hash");
@@ -1059,6 +1062,47 @@ public class RhodesService extends Service {
 			}
 		}, false);
 	}
+	
+	public static int rho_sys_set_sleeping(int enable) {
+		Logger.I(TAG, "rho_sys_set_sleeping("+enable+")");
+		int wasEnabled = 1;
+		if (wakeLockObject != null) {
+			wasEnabled = 0;
+		}
+		if (enable != 0) {
+			// disable lock device
+			PerformOnUiThread.exec( new Runnable() {
+				public void run() {
+					if (wakeLockObject != null) {
+						wakeLockObject.release();
+						wakeLockObject = null;
+						wakeLockEnabled = false;
+					}
+				}
+			}, false);
+		}
+		else {
+			// lock device from sleep
+			PerformOnUiThread.exec( new Runnable() {
+				public void run() {
+					if (wakeLockObject == null) {
+						PowerManager pm = (PowerManager)getInstance().getContext().getSystemService(Context.POWER_SERVICE);
+						if (pm != null) {
+							wakeLockObject = pm.newWakeLock(PowerManager.FULL_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP, TAG);
+							wakeLockObject.acquire();
+							wakeLockEnabled = true;
+						}
+						else {
+							Logger.E(TAG, "rho_sys_set_sleeping() - Can not get PowerManager !!!");
+						}
+					}
+				}
+			}, false);
+		}
+		return wasEnabled;
+	}
+	
+	
 	
 	private void handleAppActivation() {
 		if (DEBUG)
