@@ -3,8 +3,6 @@
 #include "logging/RhoLog.h"
 #include "common/IRhoCrypt.h"
 
-#include <wincrypt.h>
-
 namespace rho{
 namespace common{
 
@@ -12,10 +10,9 @@ class CRhoCryptImpl : public IRhoCrypt
 {
     DEFINE_LOGCLASS;
 
-    HCRYPTPROV m_hCryptProv;
-    HCRYPTKEY  m_hKey;
-    DWORD      m_dwLastError;
-    StringW    m_strDBPartition;
+	unsigned char *  m_dbKeyData;
+    int32_t   m_dwLastError;
+    String    m_strDBPartition;
 
 public:
     CRhoCryptImpl(void);
@@ -25,15 +22,14 @@ public:
     virtual int db_encrypt( const char* szPartition, int size, unsigned char* data, unsigned char* dataOut );
     virtual int set_db_CryptKey( const char* szPartition, const char* szKey, bool bPersistent );
 private:
-    bool _checkError( BOOL bRes, const char* szFunc );
-    unsigned int getErrorCode(){ return m_dwLastError; }
+    bool _checkError( int32_t status, const char* szFunc );
+    int32_t getErrorCode(){ return m_dwLastError; }
 
     void initContext(const char* szPartition);
-    void initCryptProvider();
 
-    void readKeyFromStorage(DATA_BLOB& blobKey);
+	void generateNewKey();
+    void readKeyFromStorage();
     void writeKeyToStorage();
-    void saveKeyToStorage(DATA_BLOB& blobKey);
 };
 
 }
