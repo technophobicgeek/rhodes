@@ -238,21 +238,21 @@ namespace "config" do
 
     $androidsdkpath = $config["env"]["paths"]["android"]
     unless File.exists? $androidsdkpath
-      puts "Missing or invalid 'android' section in rhobuild.yml"
+      puts "Missing or invalid 'android' section in rhobuild.yml: '#{$androidsdkpath}'"
       exit 1
     end
 
     $androidndkpath = $config["env"]["paths"]["android-ndk"]
     unless File.exists? $androidndkpath
-      puts "Missing or invalid 'android-ndk' section in rhobuild.yml"
+      puts "Missing or invalid 'android-ndk' section in rhobuild.yml: '#{$androidndkpath}'"
       exit 1
     end
 
     errfmt = "WARNING!!! Path to Android %s contain spaces! It will not work because of the Google toolchain restrictions. Move it to another location and reconfigure rhodes."
-    if $androidsdkpath =~ /\s/
-      puts(errfmt % "SDK")
-      exit 1
-    end
+    #if $androidsdkpath =~ /\s/
+    #  puts(errfmt % "SDK")
+    #  exit 1
+    #end
     if $androidndkpath =~ /\s/
       puts(errfmt % "NDK")
       exit 1
@@ -275,7 +275,8 @@ namespace "config" do
     $vendor = $app_config["vendor"]
     $vendor = "rhomobile" if $vendor.nil?
     $vendor = $vendor.gsub(/^[^A-Za-z]/, '_').gsub(/[^A-Za-z0-9]/, '_').gsub(/_+/, '_').downcase
-    $app_package_name = "com.#{$vendor}." + $appname.downcase.gsub(/[^A-Za-z_0-9]/, '')
+    $app_package_name = $app_config["android"] ? $app_config["android"]["package_name"] : nil
+    $app_package_name = "com.#{$vendor}." + $appname.downcase.gsub(/[^A-Za-z_0-9]/, '') unless $app_package_name
 
     $rhomanifest = File.join $androidpath, "Rhodes", "AndroidManifest.xml"
     $appmanifest = File.join $tmpdir, "AndroidManifest.xml"
@@ -736,6 +737,8 @@ namespace "build" do
       args = []
       args << "-I#{$shareddir}"
       args << "-I#{$shareddir}/curl/include"
+      args << "-I#{$shareddir}/ruby/include"
+      args << "-I#{$shareddir}/ruby/linux"
       args << "-I#{$std_includes}" unless $std_includes.nil?
       args << "-D__NEW__" if USE_OWN_STLPORT
       args << "-I#{$stlport_includes}" if USE_OWN_STLPORT
@@ -999,7 +1002,15 @@ namespace "build" do
         while line = f.gets
           line.chomp!
           next if line =~ /\/AndroidR\.java\s*$/
-          next if !$use_geomapping and line =~ /\/mapview\//
+
+		  if !$use_geomapping
+			next if line == "platform/android/Rhodes/src/com/rhomobile/rhodes/mapview/GoogleMapView.java"
+			next if line == "platform/android/Rhodes/src/com/rhomobile/rhodes/mapview/AnnotationsOverlay.java"
+		  end
+
+          #next if !$use_geomapping and line =~ /\/GoogleMapView\//
+          #next if !$use_geomapping and line =~ /\/AnnotationsOverlay\//
+
           lines << line
         end
       end

@@ -13,6 +13,7 @@
 #include "Alert.h"
 #include "RhoNativeViewManagerWM.h"
 #include "SyncStatusDlg.h"
+#include "rho/rubyext/NativeToolbar.h"
 
 #if defined(OS_WINDOWS)
 #include "menubar.h"
@@ -21,6 +22,8 @@
 
 #define ID_CUSTOM_MENU_ITEM_FIRST (WM_APP+3)
 #define ID_CUSTOM_MENU_ITEM_LAST  (ID_CUSTOM_MENU_ITEM_FIRST + (APP_MENU_ITEMS_MAX) - 1)
+#define ID_CUSTOM_TOOLBAR_ITEM_FIRST (ID_CUSTOM_MENU_ITEM_LAST+1)
+#define ID_CUSTOM_TOOLBAR_ITEM_LAST  (ID_CUSTOM_TOOLBAR_ITEM_FIRST + 20 - 1)
 
 static const UINT ID_BROWSER = 1;
 
@@ -34,7 +37,7 @@ static UINT WM_BLUETOOTH_DISCOVER      = ::RegisterWindowMessage(L"RHODES_WM_BLU
 static UINT WM_BLUETOOTH_DISCOVERED    = ::RegisterWindowMessage(L"RHODES_WM_BLUETOOTH_DISCOVERED");
 static UINT WM_BLUETOOTH_CALLBACK	   = ::RegisterWindowMessage(L"RHODES_WM_BLUETOOTH_CALLBACK");
 static UINT WM_EXECUTE_COMMAND		   = ::RegisterWindowMessage(L"RHODES_WM_EXECUTE_COMMAND");
-
+static UINT WM_EXECUTE_RUNNABLE		   = ::RegisterWindowMessage(L"RHODES_WM_EXECUTE_RUNNABLE");
 
 class CMainWindow :
 #if defined(_WIN32_WCE)
@@ -54,11 +57,19 @@ public:
     void Navigate(BSTR URL);
 
 	HWND getWebViewHWND();
+    CNativeToolbar& getToolbar(){ return m_toolbar; }
+    void performOnUiThread(rho::common::IRhoRunnable* pTask);
 	
 	//char* GetCurrentLocation() { return m_current_url; }
 
     // Required to forward messages to the PIEWebBrowser control
     BOOL TranslateAccelerator(MSG* pMsg);
+
+	void openNativeView(	NativeViewFactory* nativeViewFactory, 
+							NativeView* nativeView,
+							String nativeViewType);
+	void closeNativeView();
+
 
 #if defined(OS_WINDOWS)
     DECLARE_WND_CLASS(TEXT("Rhodes.MainWindow"))
@@ -83,15 +94,17 @@ public:
         MESSAGE_HANDLER(WM_SETTINGCHANGE, OnSettingChange)
         MESSAGE_HANDLER(WM_DESTROY, OnDestroy)
         //MESSAGE_HANDLER(WM_SETTEXT, OnSetText)
-		//MESSAGE_HANDLER(WM_PAINT, OnPaint)
+		MESSAGE_HANDLER(WM_PAINT, OnPaint)
         COMMAND_ID_HANDLER(IDM_EXIT, OnExitCommand)
         COMMAND_ID_HANDLER(IDM_NAVIGATE_BACK, OnNavigateBackCommand)
+        COMMAND_ID_HANDLER(IDM_NAVIGATE_FORWARD, OnNavigateForwardCommand)
         COMMAND_ID_HANDLER(IDM_SK1_EXIT, OnBackCommand)
         COMMAND_ID_HANDLER(IDM_REFRESH, OnRefreshCommand)
 		COMMAND_ID_HANDLER(IDM_NAVIGATE, OnNavigateCommand)
         COMMAND_ID_HANDLER(IDM_LOG,OnLogCommand)
 		COMMAND_ID_HANDLER(ID_FULLSCREEN, OnFullscreenCommand)
 		COMMAND_RANGE_HANDLER(ID_CUSTOM_MENU_ITEM_FIRST, ID_CUSTOM_MENU_ITEM_LAST, OnCustomMenuItemCommand)
+		COMMAND_RANGE_HANDLER(ID_CUSTOM_TOOLBAR_ITEM_FIRST, ID_CUSTOM_TOOLBAR_ITEM_LAST, OnCustomToolbarItemCommand)
 #if defined(OS_WINDOWS)
 		COMMAND_ID_HANDLER(IDM_POPUP_MENU, OnPopupMenuCommand)
 		MESSAGE_HANDLER(WM_WINDOWPOSCHANGED, OnPosChanged)
@@ -106,6 +119,7 @@ public:
 		MESSAGE_HANDLER(WM_BLUETOOTH_DISCOVERED, OnBluetoothDiscovered);
 		MESSAGE_HANDLER(WM_BLUETOOTH_CALLBACK, OnBluetoothCallback);
 		MESSAGE_HANDLER(WM_EXECUTE_COMMAND, OnExecuteCommand);
+        MESSAGE_HANDLER(WM_EXECUTE_RUNNABLE, OnExecuteRunnable);
     END_MSG_MAP()
 	
 private:
@@ -117,16 +131,19 @@ private:
 	LRESULT OnPaint(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/);
 	LRESULT OnSize(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/);
     LRESULT OnSetText(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& bHandled);
+    LRESULT OnNotify(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& bHandled);
 
     // WM_COMMAND handlers
     LRESULT OnExitCommand(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/);
     LRESULT OnBackCommand(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/);
     LRESULT OnNavigateBackCommand(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/);
+    LRESULT OnNavigateForwardCommand(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/);
     LRESULT OnRefreshCommand(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/);
     LRESULT OnNavigateCommand(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/);
 	LRESULT OnLogCommand(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/);
 	LRESULT OnFullscreenCommand (WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/);
 	LRESULT OnCustomMenuItemCommand (WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/);
+    LRESULT OnCustomToolbarItemCommand (WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/);
 
 #if defined(OS_WINDOWS)
 	LRESULT OnPopupMenuCommand(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/);
@@ -143,6 +160,7 @@ private:
 	LRESULT OnBluetoothDiscovered (UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam, BOOL& /*bHandled*/);
 	LRESULT OnBluetoothCallback (UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam, BOOL& /*bHandled*/);
 	LRESULT OnExecuteCommand (UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam, BOOL& /*bHandled*/);
+    LRESULT OnExecuteRunnable (UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam, BOOL& /*bHandled*/);
 	
 public:
     BEGIN_SINK_MAP(CMainWindow)
@@ -178,10 +196,13 @@ private:
 	void hideWebView();
 	void showWebView();
 
+	
+
 private:
 	NativeViewFactory* mNativeViewFactory;
 	NativeView* mNativeView;
 	String mNativeViewType;
+	bool mIsOpenedByURL;
 
 
 private:
@@ -210,6 +231,7 @@ private:
 #endif
 
 	bool m_bLoading;
+    CNativeToolbar m_toolbar;
 
 #if !defined(_WIN32_WCE)
 private:
@@ -228,3 +250,7 @@ private:
 
     CSyncStatusDlg m_SyncStatusDlg;
 };
+
+#if !defined(_WIN32_WCE)
+HBITMAP SHLoadImageFile (  LPCTSTR pszFileName );
+#endif

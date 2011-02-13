@@ -51,23 +51,62 @@ namespace "framework" do
 end
 
 
-$application_build_configs_keys = ['security_token']
+$application_build_configs_keys = ['security_token', 'encrypt_database']
 
 def make_application_build_config_header_file
-  inc_file = File.join($startdir, "platform", "shared", "common", "app_build_configs.c")
+  f = StringIO.new("", "w+")      
+  f.puts "// WARNING! THIS FILE IS GENERATED AUTOMATICALLY! DO NOT EDIT IT MANUALLY!"
+  #f.puts "// Generated #{Time.now.to_s}"
+  f.puts ""
+  f.puts "#include <string.h>"
+  f.puts ""
+  f.puts '#include "app_build_configs.h"'
+  f.puts ""
+      
+  f.puts 'static const char* keys[] = { ""'
+  $application_build_configs.keys.each do |key|
+    f.puts ',"'+key+'"'
+  end
+  f.puts '};'
+  f.puts ''
   
-  #return if FileUtils.uptodate?(inc_file,[File.join($app_path, "build.yml")])
+  count = 1
+
+  f.puts 'static const char* values[] = { ""'
+  $application_build_configs.keys.each do |key|
+    f.puts ',"'+$application_build_configs[key]+'"'
+    count = count + 1
+  end
+  f.puts '};'
+  f.puts ''
+
+  f.puts '#define APP_BUILD_CONFIG_COUNT '+count.to_s
+  f.puts ''
+  f.puts 'const char* get_app_build_config_item(const char* key) {'
+  f.puts '  int i;'
+  f.puts '  for (i = 1; i < APP_BUILD_CONFIG_COUNT; i++) {'
+  f.puts '    if (strcmp(key, keys[i]) == 0) {'
+  f.puts '      return values[i];'
+  f.puts '    }'
+  f.puts '  }'
+  f.puts '  return 0;'
+  f.puts '}'
+  f.puts ''
   
-  File.open(inc_file, "w") do |f|
+  Jake.modify_file_if_content_changed(File.join($startdir, "platform", "shared", "common", "app_build_configs.c"), f)
+end
+
+def make_application_build_config_java_file
+
+    f = StringIO.new("", "w+")
     f.puts "// WARNING! THIS FILE IS GENERATED AUTOMATICALLY! DO NOT EDIT IT MANUALLY!"
     #f.puts "// Generated #{Time.now.to_s}"
+
+    f.puts "package com.rho;"
     f.puts ""
-    f.puts "#include <string.h>"
-    f.puts ""
-    f.puts '#include "app_build_configs.h"'
-    f.puts ""
-      
-    f.puts 'static const char* keys[] = { ""'
+    f.puts "public class AppBuildConfig {"
+
+    f.puts 'static final String keys[] = { ""'
     $application_build_configs.keys.each do |key|
       f.puts ',"'+key+'"'
     end
@@ -76,7 +115,7 @@ def make_application_build_config_header_file
 
     count = 1
 
-    f.puts 'static const char* values[] = { ""'
+    f.puts 'static final String values[] = { ""'
     $application_build_configs.keys.each do |key|
       f.puts ',"'+$application_build_configs[key]+'"'
       count = count + 1
@@ -84,63 +123,19 @@ def make_application_build_config_header_file
     f.puts '};'
     f.puts ''
 
-    f.puts '#define APP_BUILD_CONFIG_COUNT '+count.to_s
+    f.puts 'static final int APP_BUILD_CONFIG_COUNT = '+count.to_s + ';'
     f.puts ''
-    f.puts 'const char* get_app_build_config_item(const char* key) {'
-    f.puts '  int i;'
-    f.puts '  for (i = 1; i < APP_BUILD_CONFIG_COUNT; i++) {'
-    f.puts '    if (strcmp(key, keys[i]) == 0) {'
+    f.puts 'public static String getItem(String key){'
+    f.puts '  for (int i = 1; i < APP_BUILD_CONFIG_COUNT; i++) {'
+    f.puts '    if ( key.compareTo( keys[i]) == 0) {'
     f.puts '      return values[i];'
     f.puts '    }'
     f.puts '  }'
-    f.puts '  return 0;'
+    f.puts '  return null;'
     f.puts '}'
-    f.puts ''
+    f.puts "}"
 
-  end	 
-end
-
-def make_application_build_config_java_file
-      file_name = $startdir + "/platform/bb/RubyVM/src/com/rho/AppBuildConfig.java"
-      #return if FileUtils.uptodate?(file_name,[File.join($app_path, "build.yml")])
-
-      File.open(file_name, "w") do |f|
-        f.puts "// WARNING! THIS FILE IS GENERATED AUTOMATICALLY! DO NOT EDIT IT MANUALLY!"
-        #f.puts "// Generated #{Time.now.to_s}"
-        
-        f.puts "package com.rho;"
-        f.puts ""
-        f.puts "public class AppBuildConfig {"
-        
-        f.puts 'static final String keys[] = { ""'
-        $application_build_configs.keys.each do |key|
-          f.puts ',"'+key+'"'
-        end
-        f.puts '};'
-        f.puts ''
-
-        count = 1
-
-        f.puts 'static final String values[] = { ""'
-        $application_build_configs.keys.each do |key|
-          f.puts ',"'+$application_build_configs[key]+'"'
-          count = count + 1
-        end
-        f.puts '};'
-        f.puts ''
-
-        f.puts 'static final int APP_BUILD_CONFIG_COUNT = '+count.to_s + ';'
-        f.puts ''
-        f.puts 'public static String getItem(String key){'
-        f.puts '  for (int i = 1; i < APP_BUILD_CONFIG_COUNT; i++) {'
-        f.puts '    if ( key.compareTo( keys[i]) == 0) {'
-        f.puts '      return values[i];'
-        f.puts '    }'
-        f.puts '  }'
-        f.puts '  return null;'
-        f.puts '}'
-        f.puts "}"
-      end
+    Jake.modify_file_if_content_changed( File.join( $startdir, "platform/bb/RubyVM/src/com/rho/AppBuildConfig.java" ), f )
 end
 
 namespace "config" do
@@ -453,24 +448,27 @@ def common_bundle_start(startdir, dest)
 
   copy_assets($assetfolder) if ($assetfolder and File.exists? $assetfolder)
 
-  chdir File.join($srcdir,'apps')
-
   replace_platform = $config['platform']
   replace_platform = "bb6" if $bb6
-  Dir.glob("**/*.#{replace_platform}.*").each do |file|
-    oldfile = file.gsub(Regexp.new(Regexp.escape('.') + replace_platform + Regexp.escape('.')),'.')
-    rm oldfile if File.exists? oldfile
-    mv file,oldfile
-  end
+  replace_platform = "wm" if replace_platform == 'win32'
   
-  Dir.glob("**/*.wm.*").each { |f| rm f }
-  Dir.glob("**/*.iphone.*").each { |f| rm f }
-  Dir.glob("**/*.bb.*").each { |f| rm f }
-  Dir.glob("**/*.bb6.*").each { |f| rm f }
-  Dir.glob("**/*.android.*").each { |f| rm f }
-  Dir.glob("**/.svn").each { |f| rm_rf f }
-  Dir.glob("**/CVS").each { |f| rm_rf f }
-
+  [File.join($srcdir,'apps'), ($current_platform == "bb" ? File.join($srcdir,'res') : File.join($srcdir,'lib/res'))].each do |folder|
+      chdir folder
+      
+      Dir.glob("**/*.#{replace_platform}.*").each do |file|
+        oldfile = file.gsub(Regexp.new(Regexp.escape('.') + replace_platform + Regexp.escape('.')),'.')
+        rm oldfile if File.exists? oldfile
+        mv file,oldfile
+      end
+      
+      Dir.glob("**/*.wm.*").each { |f| rm f }
+      Dir.glob("**/*.iphone.*").each { |f| rm f }
+      Dir.glob("**/*.bb.*").each { |f| rm f }
+      Dir.glob("**/*.bb6.*").each { |f| rm f }
+      Dir.glob("**/*.android.*").each { |f| rm f }
+      Dir.glob("**/.svn").each { |f| rm_rf f }
+      Dir.glob("**/CVS").each { |f| rm_rf f }
+  end  
 end
 
 def create_manifest

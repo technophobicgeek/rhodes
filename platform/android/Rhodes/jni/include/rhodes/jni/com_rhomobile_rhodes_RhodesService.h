@@ -61,6 +61,14 @@ JNIEXPORT jstring JNICALL Java_com_rhomobile_rhodes_RhodesService_normalizeUrl
 
 /*
  * Class:     com_rhomobile_rhodes_RhodesService
+ * Method:    doRequest
+ * Signature: (Ljava/lang/String;)V
+ */
+JNIEXPORT void JNICALL Java_com_rhomobile_rhodes_RhodesService_doRequest
+  (JNIEnv *, jobject, jstring);
+
+/*
+ * Class:     com_rhomobile_rhodes_RhodesService
  * Method:    loadUrl
  * Signature: (Ljava/lang/String;)V
  */
@@ -93,6 +101,22 @@ JNIEXPORT void JNICALL Java_com_rhomobile_rhodes_RhodesService_onScreenOrientati
 
 /*
  * Class:     com_rhomobile_rhodes_RhodesService
+ * Method:    callUiCreatedCallback
+ * Signature: ()V
+ */
+JNIEXPORT void JNICALL Java_com_rhomobile_rhodes_RhodesService_callUiCreatedCallback
+  (JNIEnv *, jobject);
+
+/*
+ * Class:     com_rhomobile_rhodes_RhodesService
+ * Method:    callUiDestroyedCallback
+ * Signature: ()V
+ */
+JNIEXPORT void JNICALL Java_com_rhomobile_rhodes_RhodesService_callUiDestroyedCallback
+  (JNIEnv *, jobject);
+
+/*
+ * Class:     com_rhomobile_rhodes_RhodesService
  * Method:    callActivationCallback
  * Signature: (Z)V
  */
@@ -106,6 +130,22 @@ JNIEXPORT void JNICALL Java_com_rhomobile_rhodes_RhodesService_callActivationCal
  */
 JNIEXPORT jstring JNICALL Java_com_rhomobile_rhodes_RhodesService_getBuildConfig
   (JNIEnv *, jclass, jstring);
+
+/*
+ * Class:     com_rhomobile_rhodes_RhodesService
+ * Method:    isOnStartPage
+ * Signature: ()Z
+ */
+JNIEXPORT jboolean JNICALL Java_com_rhomobile_rhodes_RhodesService_isOnStartPage
+  (JNIEnv *, jclass);
+
+/*
+ * Class:     com_rhomobile_rhodes_RhodesService
+ * Method:    canStartApp
+ * Signature: (Ljava/lang/String;Ljava/lang/String;)Z
+ */
+JNIEXPORT jboolean JNICALL Java_com_rhomobile_rhodes_RhodesService_canStartApp
+  (JNIEnv *, jclass, jstring, jstring);
 
 /*
  * Class:     com_rhomobile_rhodes_RhodesService

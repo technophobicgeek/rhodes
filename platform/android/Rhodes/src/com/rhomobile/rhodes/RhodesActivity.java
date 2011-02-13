@@ -4,6 +4,7 @@ import java.lang.reflect.Constructor;
 
 import com.rhomobile.rhodes.bluetooth.RhoBluetoothManager;
 import com.rhomobile.rhodes.mainview.MainView;
+import com.rhomobile.rhodes.util.PerformOnUiThread;
 import com.rhomobile.rhodes.webview.ChromeClientOld;
 import com.rhomobile.rhodes.webview.RhoWebSettings;
 
@@ -21,11 +22,12 @@ import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.Window;
+import android.view.WindowManager;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
-public class RhodesActivity extends BaseActivity implements ServiceConnection {
+public class RhodesActivity extends BaseActivity {
 	
 	private static final String TAG = RhodesActivity.class.getSimpleName();
 	
@@ -38,9 +40,6 @@ public class RhodesActivity extends BaseActivity implements ServiceConnection {
 	static final String RHO_START_PARAMS_KEY = "RhoStartParams";
 	
 	private static RhodesActivity sInstance;
-	
-	private RhodesService mRhodesService;
-	private boolean mBoundToService;
 	
 	private Handler mHandler;
 	
@@ -73,8 +72,8 @@ public class RhodesActivity extends BaseActivity implements ServiceConnection {
 		Thread ct = Thread.currentThread();
 		//ct.setPriority(Thread.MAX_PRIORITY);
 		uiThreadId = ct.getId();
-		
-		getWindow().setFlags(RhodesService.WINDOW_FLAGS, RhodesService.WINDOW_MASK);
+
+		//requestWindowFeature(Window.FEATURE_NO_TITLE);
 		
 		requestWindowFeature(Window.FEATURE_PROGRESS);
 		getWindow().setFeatureInt(Window.FEATURE_PROGRESS, 10000);
@@ -82,14 +81,42 @@ public class RhodesActivity extends BaseActivity implements ServiceConnection {
 		mSplashScreen = new SplashScreen(this);
 		setMainView(mSplashScreen);
 		
-		Intent intent = new Intent(this, RhodesService.class);
-		bindService(intent, this, Context.BIND_AUTO_CREATE);
-		mBoundToService = true;
-		
 		mHandler = new Handler();
 		mHandler.post(mSetup);
 		
 		sInstance = this;
+		
+		mHandler.post(new Runnable() {
+			public void run() {
+				RhodesService r = RhodesService.getInstance();
+				if (r == null) {
+					// If there is no yet running RhodesService instance,
+					// try to do the same after 100ms
+					mHandler.postDelayed(this, 100);
+					return;
+				}
+				
+				r.callUiCreatedCallback();
+			}
+		});
+	}
+	
+	public static void setFullscreen(int enable) {
+		//Utils.platformLog(TAG, "setFullscreen("+String.valueOf(enable)+")");
+		final int en = enable;
+		PerformOnUiThread.exec( new Runnable() {
+			public void run() {
+				if (en != 0) {
+					getInstance().getWindow().clearFlags( WindowManager.LayoutParams.FLAG_FORCE_NOT_FULLSCREEN);
+					getInstance().getWindow().setFlags( WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
+				}
+				else {
+					getInstance().getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+					getInstance().getWindow().setFlags( WindowManager.LayoutParams.FLAG_FORCE_NOT_FULLSCREEN, WindowManager.LayoutParams.FLAG_FORCE_NOT_FULLSCREEN);
+				}
+			}
+		}		
+		, false);
 	}
 
 	@Override
@@ -106,11 +133,11 @@ public class RhodesActivity extends BaseActivity implements ServiceConnection {
 	
 	@Override
 	public void onDestroy() {
+		RhodesService r = RhodesService.getInstance();
+		if (r != null)
+			r.callUiDestroyedCallback();
+		
 		sInstance = null;
-		if (mBoundToService) {
-			unbindService(this);
-			mBoundToService = false;
-		}
 		super.onDestroy();
 	}
 	
@@ -194,7 +221,7 @@ public class RhodesActivity extends BaseActivity implements ServiceConnection {
 			}
 		};
 		
-		if (!waitUntilNavigationDone) {
+		if (true/*!waitUntilNavigationDone*/) {
 			// Make new MainView visible right now
 			setMainViewVisible.run();
 		}
@@ -294,11 +321,10 @@ public class RhodesActivity extends BaseActivity implements ServiceConnection {
 
 	@Override
 	public void onServiceConnected(ComponentName name, IBinder service) {
-		Log.d(TAG, "Connected to service");
-		mRhodesService = ((RhodesService.LocalBinder)service).getService();
+		super.onServiceConnected(name, service);
 		
 		if (!isValidSecurityToken()) {
-			Logger.E(TAG, "SECURITY_TOKEN parameter is not valid for this application !");
+			Logger.E(TAG, "This is hidden app and can be started only with security key.");
 			getRhodesApplication().exit();
 			return;
 		}
@@ -306,44 +332,18 @@ public class RhodesActivity extends BaseActivity implements ServiceConnection {
 		ENABLE_LOADING_INDICATION = !RhoConf.getBool("disable_loading_indication");
 	}
 
-	@Override
-	public void onServiceDisconnected(ComponentName name) {
-		Log.d(TAG, "Disconnected from service");
-		mRhodesService = null;
-	}
-	
-	private boolean isValidSecurityToken() {
-		boolean valid = true;
-		String security_token = RhodesService.getBuildConfig("security_token");
-		if (security_token != null) {
-			if (security_token.length() > 0) {
-				valid = false;
-				Object params = getIntent().getExtras();
-				if (params != null && params instanceof Bundle) {
-					Bundle startParams = (Bundle)params;
-					String rho_start_params = startParams.getString(RHO_START_PARAMS_KEY);
-					if (rho_start_params != null) {
-						String security_token_key = "sequrity_token=";
-						int sec_index = rho_start_params.indexOf(security_token_key);
-						if (sec_index >= 0) {
-							String tmp = rho_start_params.substring(sec_index + security_token_key.length(), rho_start_params.length() - sec_index - security_token_key.length());
-							int end_of_token = tmp.indexOf(",");
-							if (end_of_token >= 0) {
-								tmp = tmp.substring(0, end_of_token);
-							}
-							end_of_token = tmp.indexOf(" ");
-							if (end_of_token >= 0) {
-								tmp = tmp.substring(0, end_of_token);
-							}
-							if (tmp.equals(security_token)) {
-								valid = true;
-							}
-						}
-					}
-				}
-			}
-		}
-		return valid;
+	private boolean isValidSecurityToken() 
+	{
+	    String rho_start_params = "";
+	    
+		Object params = getIntent().getExtras();
+		if (params != null && params instanceof Bundle) 
+		{
+			Bundle startParams = (Bundle)params;
+			rho_start_params = startParams.getString(RHO_START_PARAMS_KEY);
+	    }
+	    
+	    return RhodesService.canStartApp(rho_start_params, ", ");
 	}
 	
 	public static Context getContext() {

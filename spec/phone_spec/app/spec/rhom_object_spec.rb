@@ -20,7 +20,7 @@
 require 'rhom'
 require 'rho/rhoutils'
 
-USE_HSQLDB = System.get_property('platform') == 'Blackberry' && System.get_property('os_version')[0].to_i() < 5
+USE_HSQLDB = System.get_property('platform') == 'Blackberry' #&& System.get_property('os_version')[0].to_i() < 5
 USE_COPY_FILES = !defined? RHO_ME
 
 def getAccount
@@ -69,6 +69,8 @@ class Test_Helper
     def before_all(tables, folder)
         @tables = tables
         @folder = folder
+        
+        Rho::RHO.load_all_sources()
         @save_sync_types = getTestDB().select_from_table('sources','name, sync_type')
         getTestDB().update_into_table('sources',{'sync_type'=>'none'})
         
@@ -152,7 +154,7 @@ describe "Rhom::RhomObject" do
   #  getAccount.get_source_id.should == "23"
     #getCase.get_source_id.should == "1"
   #end
-
+#=begin
   it "should dynamically assign values" do
     account = getAccount.new
     account.name = 'hello name'
@@ -355,7 +357,8 @@ describe "Rhom::RhomObject" do
 
     if $spec_settings[:sync_model]
         records = getTestDB().select_from_table('changed_values','*', 'update_type' => 'create')
-        records.length.should == 2
+        records.length.should == 1
+        records[0]['attrib'].should == 'object'
         
         records = getTestDB().select_from_table('changed_values','*', 'update_type' => 'update')
         records.length.should == 0
@@ -381,7 +384,8 @@ describe "Rhom::RhomObject" do
 
     if $spec_settings[:sync_model]
         records = getTestDB().select_from_table('changed_values','*', 'update_type' => 'create')
-        records.length.should == 2
+        records.length.should == 1
+        records[0]['attrib'].should == 'object'
         
         records = getTestDB().select_from_table('changed_values','*', 'update_type' => 'update')
         records.length.should == 0
@@ -389,13 +393,13 @@ describe "Rhom::RhomObject" do
   end
   
   it "should destroy a record" do
-    count = getAccount.find(:all).size
-    @account = getAccount.find(:all)[0]
+    count = getAccount.count
+    @account = getAccount.find(:first)
     destroy_id = @account.object
     @account.destroy
     @account_nil = getAccount.find(destroy_id)
     @account_nil.should be_nil
-    new_count = getAccount.find(:all).size
+    new_count = getAccount.count
     (count - 1).should == new_count
   end
   
@@ -415,12 +419,12 @@ describe "Rhom::RhomObject" do
   
   it "should fully update a record" do
     new_attributes = {"name"=>"Mobio US", "industry"=>"Electronics"}
-    @account = getAccount.find(:all).first
+    @account = getAccount.find(:first)
     @account.update_attributes(new_attributes)
     @account.name.should == "Mobio US"
     @account.industry.should == "Electronics"
     
-    @new_acct = getAccount.find(:all).first
+    @new_acct = getAccount.find(:first)
     
     @new_acct.name.should == "Mobio US"
     @new_acct.industry.should == "Electronics"
@@ -515,7 +519,8 @@ describe "Rhom::RhomObject" do
 
     if $spec_settings[:sync_model]        
         records = getTestDB().select_from_table('changed_values','*', 'update_type' => 'update')
-        records.length.should == 17
+        records.length.should == 1
+        records[0]['attrib'].should == 'object'
     end    
     
   end
@@ -534,7 +539,8 @@ describe "Rhom::RhomObject" do
 
     if $spec_settings[:sync_model]        
         records = getTestDB().select_from_table('changed_values','*', 'update_type' => 'update')
-        records.length.should == 17
+        records.length.should == 1
+        records[0]['attrib'].should == 'object'
     end    
     
   end
@@ -615,28 +621,36 @@ describe "Rhom::RhomObject" do
     @new_acct.name.should == ""
     @new_acct.industry.should == "Technology"
   end
-  
+
   it "should store only last updated value for attrib" do
+    object_id = '44e804f2-4933-4e20-271c-48fcecd9450d'
     new_attributes1 = {"new_name"=>"Mobio Europe"}
-    @account = getAccount.find('44e804f2-4933-4e20-271c-48fcecd9450d')
+    @account = getAccount.find(object_id)
     @account.update_attributes(new_attributes1)
+    if $spec_settings[:sync_model]    
+        records = getTestDB().select_from_table('changed_values','*', 'update_type' => 'update')
+        records.length.should == 1
+    end        
     
-    @new_acct = getAccount.find('44e804f2-4933-4e20-271c-48fcecd9450d')
+    @new_acct = getAccount.find(object_id)
     
     @new_acct.new_name.should == "Mobio Europe"
     @new_acct.name.should == "Mobio India"
     @new_acct.industry.should == "Technology"
     
     new_attributes2 = {"new_name"=>"Mobio Asia"}
-    @account = getAccount.find('44e804f2-4933-4e20-271c-48fcecd9450d')
+    @account = getAccount.find(object_id)
     @account.update_attributes(new_attributes2)
+    if $spec_settings[:sync_model]    
+        records = getTestDB().select_from_table('changed_values','*', 'update_type' => 'update')
+        records.length.should == 1
+    end        
     
-    @new_acct = getAccount.find('44e804f2-4933-4e20-271c-48fcecd9450d')
+    @new_acct = getAccount.find(object_id)
     
     @new_acct.new_name.should == "Mobio Asia"
     @new_acct.name.should == "Mobio India"
     @new_acct.industry.should == "Technology"
-
     if $spec_settings[:sync_model]    
         records = getTestDB().select_from_table('changed_values','*', 'update_type' => 'update')
         records.length.should == 1
@@ -673,7 +687,7 @@ describe "Rhom::RhomObject" do
   end
   
   it "should find with conditions" do
-    @accts = getAccount.find(:all, :conditions => {'industry' => 'Technology'}, :order => 'name', :orderdir => "DESC")
+    @accts = getAccount.find(:all, :conditions => {'industry' => 'Technology'}, :order => 'name', :orderdir => "desc")
     @accts.length.should == 2
     @accts[0].name.should == "Mobio India"
     @accts[0].industry.should == "Technology"
@@ -686,12 +700,6 @@ describe "Rhom::RhomObject" do
     @accts.length.should == 1
     @accts[0].name.should == "Mobio India"
     @accts[0].industry.should == "Technology"
-  end
-
-  it "should find with SQL multiple conditions" do
-    @acct = getAccount.find(:first, :conditions => [ "name = ? AND industry = ?", "'Mobio India'", "'Technology'" ])
-    @acct.name.should == "Mobio India"
-    @acct.industry.should == "Technology"
   end
 
   it "should find with advanced OR conditions" do
@@ -768,6 +776,17 @@ describe "Rhom::RhomObject" do
         :op => 'AND')
   
     nCount.should == 0
+  end
+
+  it "should find with advanced AND conditions and non-string value" do
+    res = getAccount.find( :all, 
+       :conditions => { 
+        {:func=>'length', :name=>'name', :op=>'>'} => 0 
+       },
+       :op => 'AND')
+       
+    res.should_not be_nil
+    res.length.should  == 2
   end
 
   it "should search with LIKE" do
@@ -958,21 +977,10 @@ describe "Rhom::RhomObject" do
     
   end
   
-  it "should return records when order by is nil for some records" do
-    @accts = getAccount.find(:all, :order => 'shipping_address_country', :dont_ignore_missed_attribs => true)
-    @accts.length.should == 2
-    
-    if ( @accts[1].name == "Aeroprise" )
-        @accts[1].name.should == "Aeroprise"
-    else
-        @accts[0].name.should == "Aeroprise"
-    end        
-  end
-
   it "should delete_all" do
     vars = {"name"=>"foobarthree", "industry"=>"entertainment"}
     account = getAccount.create(vars)
-    getAccount.find(:all).length.should > 0
+    getAccount.count.should > 0
     if $spec_settings[:sync_model]        
         records = getTestDB().select_from_table('changed_values','*', {'source_id' => getAccount().get_source_id(), "update_type"=>'delete'} )
         records.length.should == 0
@@ -984,7 +992,7 @@ describe "Rhom::RhomObject" do
   
     getAccount.delete_all
     
-    getAccount.find(:all).length.should == 0
+    getAccount.count.should == 0
 
     if $spec_settings[:sync_model]        
         records = getTestDB().select_from_table('changed_values','*', {'source_id' => getAccount().get_source_id(), "update_type"=>'delete'} )
@@ -1123,8 +1131,8 @@ describe "Rhom::RhomObject" do
         records.length.should > 0
         
         records = getTestDB().select_from_table('changed_values','*', {'source_id' => getAccount().get_source_id(), "update_type"=>'create'} )
-        records.length.should == 2
-        
+        records.length.should == 1
+        records[0]['attrib'].should == 'object'
     end    
     
   end
@@ -1266,44 +1274,64 @@ describe "Rhom::RhomObject" do
     @accts[0].name.should == "Aeroprise"
     @accts[0].industry.should == "Technology"
   end
+  
+  it "should find with sql multiple conditions" do
+    @acct = getAccount.find(:first, :conditions => [ "name = ? AND industry = ?", "'Mobio India'", "'Technology'" ], :select => ['name', 'industry'])
+    @acct.name.should == "Mobio India"
+    @acct.industry.should == "Technology"
+  end
 
   it "should support sql conditions arg" do
-    @accts = getAccount.find(:all, :conditions => "name = 'Mobio India'")
+    @accts = getAccount.find(:all, :conditions => "name = 'Mobio India'", :select => ['name', 'industry'])
     @accts.length.should == 1
     @accts[0].name.should == "Mobio India"
     @accts[0].industry.should == "Technology"
   end
 
   it "should support simple sql conditions" do
-    @accts = getAccount.find(:all, :conditions => ["name = ?", "'Mobio India'"])
+    @accts = getAccount.find(:all, :conditions => ["name = ?", "'Mobio India'"], :select => ['name', 'industry'])
     @accts.length.should == 1
     @accts[0].name.should == "Mobio India"
     @accts[0].industry.should == "Technology"
   end
 
   it "should support complex sql conditions arg" do
-    @accts = getAccount.find(:all, :conditions => "name like 'Mobio%'")
+    @accts = getAccount.find(:all, :conditions => "name like 'Mobio%'", :select => ['name', 'industry'])
     @accts.length.should == 1
     @accts[0].name.should == "Mobio India"
     @accts[0].industry.should == "Technology"
   end
   
   it "should support sql conditions single filter" do
-    @accts = getAccount.find(:all, :conditions => ["name like ?", "'Mob%'"])
+    @accts = getAccount.find(:all, :conditions => ["name like ?", "'Mob%'"], :select => ['name', 'industry'])
     @accts.length.should == 1
     @accts[0].name.should == "Mobio India"
     @accts[0].industry.should == "Technology"
   end
   
   it "should support sql conditions with multiple filters" do
-    @accts = getAccount.find(:all, :conditions => ["name like ? and industry like ?", "'Mob%'", "'Tech%'"])
+    @accts = getAccount.find(:all, :conditions => ["name like ? and industry like ?", "'Mob%'", "'Tech%'"], :select => ['name', 'industry'])
     @accts.length.should == 1
     @accts[0].name.should == "Mobio India"
     @accts[0].industry.should == "Technology"
   end
 
-end
 
+  it "should return records when order by is nil for some records" do
+    return if USE_HSQLDB
+    @accts = getAccount.find(:all, :order => 'shipping_address_country', :dont_ignore_missed_attribs => true, :select => ['name'])
+    @accts.length.should == 2
+    
+    if ( @accts[1].name == "Aeroprise" )
+        @accts[1].name.should == "Aeroprise"
+    else
+        @accts[0].name.should == "Aeroprise"
+    end        
+  end
+  
+#=end
+end
+#=begin
 describe "Rhom#paginate" do
 
     before(:all) do
@@ -1346,7 +1374,7 @@ if !USE_HSQLDB
 else
         return @expected if $spec_settings[:schema_model]
         
-        @expected_b
+        @expected #_b
 end        
     end
     
@@ -1413,3 +1441,4 @@ end
     end
 end
 
+#=end

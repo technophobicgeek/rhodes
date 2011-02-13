@@ -40,6 +40,8 @@ import net.rim.device.api.ui.Manager;
 import net.rim.device.api.math.Fixed32;
 //import net.rim.device.api.system.EventInjector.KeyCodeEvent;
 import net.rim.blackberry.api.invoke.MessageArguments;
+import net.rim.blackberry.api.mail.Address;
+import net.rim.blackberry.api.mail.Message.RecipientType;
 
 import com.rho.*;
 //import com.rho.db.DBAdapter;
@@ -78,6 +80,9 @@ final public class RhodesApplication extends RhodesApplicationPlatform implement
 	class CKeyListener  implements KeyListener{
 
 		public boolean keyChar(char key, int status, int time) {
+			if ( m_bDisableInput )
+				return true;
+			
 	        if( key == Characters.ENTER ) {
 	        
 	        	return openLink();
@@ -86,6 +91,9 @@ final public class RhodesApplication extends RhodesApplicationPlatform implement
 			return false;
 		}
 		public boolean keyDown(int keycode, int time) {
+			if ( m_bDisableInput )
+				return true;
+			
 			int nKey = Keypad.key(keycode);
 			if ( nKey == Keypad.KEY_ESCAPE )
 			{
@@ -108,6 +116,9 @@ final public class RhodesApplication extends RhodesApplicationPlatform implement
     class CTrackwheelListener implements TrackwheelListener{
 
 		public boolean trackwheelClick(int status, int time) {
+			if ( m_bDisableInput )
+				return true;
+
 			return openLink();
 			//return true;
 		}
@@ -343,7 +354,7 @@ final public class RhodesApplication extends RhodesApplicationPlatform implement
 	            //LOG.INFO("*******openLink: " + label);
 	            
 	            if( label.equalsIgnoreCase(m_strGetLink) 
-	                ||label.startsWith(m_strEmailMenu) || label.startsWith(m_strCallMenu) ||
+	                ||label.indexOf(m_strEmailMenu)>=0 || label.indexOf(m_strCallMenu)>=0 ||
 	                label.equalsIgnoreCase(m_strChangeOptionMenu) )
 	            {
 	              item.run();
@@ -399,7 +410,7 @@ final public class RhodesApplication extends RhodesApplicationPlatform implement
     	_mainScreen.invalidate();
     }
     
-    static String m_strSecurityToken = "";
+    static String m_strCmdLine = "", m_strSecurityToken = "";
     /***************************************************************************
      * Main.
      **************************************************************************/
@@ -412,6 +423,11 @@ final public class RhodesApplication extends RhodesApplicationPlatform implement
 			{
 				for( int i = 0; i < args.length; i++)
 				{
+					if ( i > 0 )
+						m_strCmdLine += " ";
+					
+					m_strCmdLine += args[i];
+					
 					if ( args[i].startsWith("security_token=") )
 						m_strSecurityToken = args[i].substring(15);
 				}
@@ -451,6 +467,9 @@ final public class RhodesApplication extends RhodesApplicationPlatform implement
     	
     	if ( SyncThread.getInstance() != null )
     		SyncThread.getInstance().Destroy();
+    	
+    	RhoRuby.rho_ruby_deactivateApp();
+    	RhoRuby.rho_ruby_uiDestroyed();
     	
 		GeoLocation.stop();
         RhoRuby.RhoRubyStop();
@@ -556,6 +575,8 @@ final public class RhodesApplication extends RhodesApplicationPlatform implement
 		        	
 		    		System.exit(1);
 		    	}
+		    	
+		    	RhoRuby.rho_ruby_uiCreated();
 		    	
 		    	runActivateHooks();
 		    	
@@ -767,7 +788,10 @@ final public class RhodesApplication extends RhodesApplicationPlatform implement
 			return super.navigationClick(status, time);
 		}
 
-    	protected boolean onTouchUnclick() {
+    	protected boolean onTouchUnclick(int x, int y) {
+			if ( m_bDisableInput )
+				return true;
+    		
 			return openLink();
     	}
     	
@@ -977,11 +1001,7 @@ final public class RhodesApplication extends RhodesApplicationPlatform implement
     	try {
     		RubyProgram obj = new xruby.version.main();
 	    	String pngname = "/apps/app/loading.png";
-	    	String pngbbname = "/apps/app/loading.bb.png";
-	    	is = obj.getClass().getResourceAsStream(pngbbname);
-	    	if (is == null) {
-		    	is = obj.getClass().getResourceAsStream(pngname);
-	    	}
+	    	is = obj.getClass().getResourceAsStream(pngname);
 	    	if ( is != null )
 	    	{
 		    	int size = is.available();
@@ -1090,7 +1110,8 @@ final public class RhodesApplication extends RhodesApplicationPlatform implement
             }
             
 	        LOG.INFO(" STARTING RHODES: ***----------------------------------*** " );
-	    	
+	        RhodesApp.setStartParameters(m_strCmdLine);
+	        
 	        RhodesApp.Create(RhoConf.getInstance().getRhoRootPath());
         	
 	    	CKeyListener list = new CKeyListener();
@@ -1175,6 +1196,11 @@ final public class RhodesApplication extends RhodesApplicationPlatform implement
     	cookies.put(baseUrl, cookie);
     	
     	m_oBrowserAdapter.setCookie(url, cookie);
+    }
+    
+    public boolean hasTouchScreen()
+    {
+    	return _mainScreen.isTouchScreen();
     }
     
     private void createBrowserControl()
@@ -1301,6 +1327,8 @@ final public class RhodesApplication extends RhodesApplicationPlatform implement
     	});
     }
 
+    boolean m_bDisableInput = false;
+    public boolean isInputDisabled(){ return m_bDisableInput; }
     public void processConnection(HttpConnection connection, Object e) 
     {
         // cancel previous request
@@ -1315,7 +1343,9 @@ final public class RhodesApplication extends RhodesApplicationPlatform implement
         
         RHODESAPP().getSplashScreen().hide();
         
+        m_bDisableInput = true;
         m_oBrowserAdapter.processConnection(connection, e);
+        m_bDisableInput = false;
     }
 
     public static class PrimaryResourceFetchThread {//extends Thread {
@@ -1520,6 +1550,64 @@ final public class RhodesApplication extends RhodesApplicationPlatform implement
     		
     	};
     	
+    	void runMailApplication(URI uri)
+    	{
+    		net.rim.blackberry.api.mail.Message msg = new net.rim.blackberry.api.mail.Message();
+    		
+    		String strTo = uri.getPath();
+    		
+    		try
+    		{
+	    		if ( strTo != null && strTo.length() > 0 )
+	    			msg.addRecipient(RecipientType.TO, new Address( strTo, strTo) );
+	    		
+    		}catch(Exception exc)
+    		{
+    			LOG.ERROR("Error setting mail TO: " + strTo, exc);
+    		}
+    		
+        	String query = uri.getQueryString();
+        	if (query != null) 
+        	{
+        		StringParser tok = new StringParser(query, "&");
+        		while (tok.hasMoreElements()) {
+        			String pair = (String)tok.nextElement();
+        			StringParser nv = new StringParser(pair, "=");
+        			String name = (String)nv.nextElement();
+        			String value = (String)nv.nextElement();
+        			if (name == null || value == null)
+        				continue;
+
+            		try
+            		{
+	        			if (name.equalsIgnoreCase("subject") )
+	        				msg.setSubject(value);
+	        			else if (name.equalsIgnoreCase("body")) 
+	        				msg.setContent(value);
+	        			else if (name.equalsIgnoreCase("cc")) 
+	        				msg.addRecipient(RecipientType.CC, new Address( value, value) );
+	        			else if (name.equalsIgnoreCase("bcc")) 
+	        				msg.addRecipient(RecipientType.BCC, new Address( value, value) );
+	        			else if (name.equalsIgnoreCase("from")) 
+	        				msg.addRecipient(RecipientType.FROM, new Address( value, value) );
+	        			else if (name.equalsIgnoreCase("to")) 
+	        				msg.addRecipient(RecipientType.TO, new Address( value, value) );
+	        			else if (name.equalsIgnoreCase("sender")) 
+	        				msg.addRecipient(RecipientType.SENDER, new Address( value, value) );
+	        			else if (name.equalsIgnoreCase("reply_to")) 
+	        				msg.addRecipient(RecipientType.REPLY_TO, new Address( value, value) );
+	        			else
+	        				msg.addHeader(name.toUpperCase(), value);
+
+            		}catch(Exception exc)
+            		{
+            			LOG.ERROR("Error setting message property: " + name + ";value:" + value, exc);
+            		}
+        		}
+        	}
+    		Invoke.invokeApplication(Invoke.APP_TYPE_MESSAGES, new MessageArguments( msg ));
+    	}
+    	
         void processCommand()throws IOException
         {
         	if ( m_bActivateApp )
@@ -1547,18 +1635,22 @@ final public class RhodesApplication extends RhodesApplicationPlatform implement
         				return;
         			}
         			
-        			if (name.equals("body")) 
+        			if (name.equalsIgnoreCase("body")) 
         			{
         				strMsgBody = value;
         			}
         		}
         	}
 
-        	if ( uri.getScheme().equalsIgnoreCase("sms"))
+        	if ( uri.getScheme().equalsIgnoreCase("rhomailto"))
+        	{
+        		runMailApplication(uri);
+        		return;
+        	}else if ( uri.getScheme().equalsIgnoreCase("sms"))
         	{
         		RhoTextMessage msg = new RhoTextMessage(uri.getPath(), URI.urlDecode(strMsgBody) );
         		
-        		MessageArguments args = new MessageArguments( msg ); 
+        		MessageArguments args = new MessageArguments( msg );
         		Invoke.invokeApplication(Invoke.APP_TYPE_MESSAGES, args);
         		return;
         	}

@@ -77,7 +77,7 @@ static bool isfile(String const &path)
     return stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode);
 }
 
-static bool isindex(String const &uri)
+/*static*/ int CHttpServer::isIndex(String const &uri)
 {
     static struct {
         const char *s;
@@ -102,10 +102,15 @@ static bool isindex(String const &uri)
         if (pos + index_files[i].len != luri.size())
             continue;
         
-        return true;
+        return index_files[i].len;
     }
     
-    return false;
+    return 0;
+}
+
+static bool isindex(String const &uri)
+{
+    return CHttpServer::isIndex(uri) > 0 ; 
 }
 
 static bool isknowntype(String const &uri)
@@ -265,11 +270,11 @@ void CHttpServer::stop()
     // WARNING!!! It is not enough to just close listener on Android
     // to stop server. By unknown reason accept does not unblock if
     // it was closed in another thread. However, on iPhone it works
-    // right. To work around this, we create dummy sockect and connect
+    // right. To work around this, we create dummy socket and connect
     // to the listener. This surely unblock accept on listener and,
     // therefore, stop server thread (because m_active set to false).
     m_active = false;
-    RAWTRACE("Stopping server...");
+    RAWLOG_INFO("Stopping server...");
     SOCKET conn = socket(AF_INET, SOCK_STREAM, 0);
     sockaddr_in sa;
     memset(&sa, 0, sizeof(sa));
@@ -360,6 +365,7 @@ bool CHttpServer::run()
         return false;
     
     m_active = true;
+    RHODESAPP().notifyLocalServerStarted();
     
     for(;;) {
         RAWTRACE("Waiting for connections...");

@@ -56,6 +56,9 @@ VALUE rho_sys_get_property(char* szPropName)
 	if (strcasecmp("is_emulator",szPropName) == 0) 
         return rho_ruby_create_boolean(0);
 
+	if (strcasecmp("has_touchscreen",szPropName) == 0)
+        return rho_ruby_create_boolean(1);
+
     RAWLOG_ERROR1("Unknown Rho::System property : %s", szPropName);
 
     return rho_ruby_get_NIL();
@@ -84,5 +87,11 @@ int rho_sys_set_sleeping(int sleeping)
     return 1;
 }
 #endif //defined(OS_MACOSX) || defined(OS_ANDROID)
+
+const char* rho_sys_get_start_params() 
+{
+    return rho::common::CRhodesApp::getStartParameters().c_str();
+}
+
 
 } //extern "C"

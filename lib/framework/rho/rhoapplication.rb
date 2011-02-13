@@ -63,19 +63,25 @@ module Rho
     def initialized?
       @initialized
     end
-    
+
     def on_activate_app
     end
 
     def on_deactivate_app
     end
 
+    def on_ui_created
+    end
+
+    def on_ui_destroyed
+    end
+
     def on_sync_user_changed
         Rhom::Rhom.database_full_reset(false, false)    
     end
     
-    def on_config_conflicts(conflicts)
-        puts "on_config_conflicts: #{conflicts}"
+    def on_reinstall_config_update(conflicts)
+        puts "on_reinstall_config_update: #{conflicts}"
     end
 
     # works for schema sources

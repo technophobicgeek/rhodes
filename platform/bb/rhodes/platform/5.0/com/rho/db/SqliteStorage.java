@@ -2,6 +2,7 @@ package com.rho.db;
 
 import j2me.lang.CharacterMe;
 
+import com.rho.AppBuildConfig;
 import com.rho.RhoConf;
 import com.rho.RhoEmptyLogger;
 import com.rho.RhoLogger;
@@ -10,6 +11,8 @@ import com.rho.file.*;
 import net.rim.device.api.io.URI;
 import net.rim.device.api.database.*;
 import java.util.Vector;
+import java.util.Hashtable;
+import java.util.Enumeration;
 
 public class SqliteStorage implements IDBStorage 
 {
@@ -20,7 +23,9 @@ public class SqliteStorage implements IDBStorage
 	private boolean m_bPendingTransaction = false;
 	private Database m_db;
 	private int m_nInsideTransaction = 0;
+	private boolean m_bNeedProcessCallback = false;
 	private IDBCallback m_dbCallback;
+	//private Hashtable m_mapStatements = new Hashtable();
 	
 	public SqliteStorage()
 	{
@@ -62,7 +67,7 @@ public class SqliteStorage implements IDBStorage
 	public IDBResult executeSQL(String strStatement, Object[] values,
 			boolean bReportNonUnique) throws DBException 
 	{
-		LOG.TRACE(strStatement);// + "; Values: " + values);
+		//LOG.INFO(strStatement);// + "; Values: " + values);
 		
 		if ( m_db == null )
 			throw new RuntimeException("executeSQL: m_db == null");
@@ -88,13 +93,29 @@ public class SqliteStorage implements IDBStorage
 					break;
 				
 				String strCommand = strStatement.length() > 6 ? strStatement.substring(0, 6) : ""; 
-				boolean bSelect = strCommand.equalsIgnoreCase("SELECT");
-				Statement st = m_db.createStatement(strStatement);
+				boolean bSelect = strCommand.equalsIgnoreCase("SELECT") || strCommand.equalsIgnoreCase("PRAGMA");
+				
+				Statement st = null;//(Statement)m_mapStatements.get(strStatement);
+				boolean bCachedStatement = st != null;
+				if ( st == null )
+					st = m_db.createStatement(strStatement);
+				
 				boolean bDontCloseStatement = false;
 				try
 				{
-					st.prepare();
-                	strStatement = st.getTail();
+					if ( !bCachedStatement )
+					{
+						st.prepare();
+	                	strStatement = st.getTail();
+	                	
+	                	/*if ( strStatement == null || strStatement.length() == 0 )
+	                	{
+	                		m_mapStatements.put(strStatementOrig, st);
+	                		bCachedStatement = true;
+	                	}*/
+	                	
+					}else
+						strStatement = "";
 					
 					for ( int i = 0; values != null && i < values.length; i++ )
 					{
@@ -105,19 +126,25 @@ public class SqliteStorage implements IDBStorage
 					{
 		                if ( res == null )
 		                {
-		                	res = new SqliteResult(st);
+		                	res = new SqliteResult(st, bCachedStatement);
 		                	bDontCloseStatement = true;
 		                }
 					}else
 					{
 						try
 						{
+							//LOG.INFO("START execute");
 							st.execute();
+							//LOG.INFO("END execute");
 							
-							if ( m_nInsideTransaction == 0 &&
-								(strCommand.equalsIgnoreCase("INSERT")|| strCommand.equalsIgnoreCase("DELETE") ||
-								 strCommand.equalsIgnoreCase("UPDATE") ) )
-								processCallbackData();
+							if ( /*strCommand.equalsIgnoreCase("INSERT")||*/ strCommand.equalsIgnoreCase("DELETE") ||
+								 strCommand.equalsIgnoreCase("UPDATE")  )
+							{
+								if ( m_nInsideTransaction == 0 )
+									processCallbackData();
+								else
+									m_bNeedProcessCallback = true;
+							}
 							
 						}catch(DatabaseException exc)
 						{
@@ -128,13 +155,22 @@ public class SqliteStorage implements IDBStorage
 						}
 						
 	                	if ( res == null )
-	                		res = new SqliteResult(null);
+	                		res = new SqliteResult(null, false);
 					}
 					
 				}finally
 				{
 					if ( !bDontCloseStatement )
-						st.close();
+					{
+						if ( bCachedStatement )
+						{
+							//LOG.INFO("START reset");							
+							st.reset();
+							//LOG.INFO("END reset");
+						}
+						else
+							st.close();
+					}
 					
 					st = null;
 				}
@@ -144,6 +180,8 @@ public class SqliteStorage implements IDBStorage
 			LOG.ERROR("executeSQL failed. Statement: " + strStatementOrig, exc);
 			throw new DBException(exc);
 		}
+		
+		//LOG.INFO("executeSQL END");
 		return res;
 	}
 
@@ -215,10 +253,13 @@ public class SqliteStorage implements IDBStorage
 			//m_dbSess.setDBCallback(this);
 
 			URI myURI = URI.create(strDbName);
+			boolean bEncrypted =  AppBuildConfig.getItem("encrypt_database") != null && 
+           		 AppBuildConfig.getItem("encrypt_database").compareTo("1") == 0;
+			DatabaseSecurityOptions dbso = new DatabaseSecurityOptions(bEncrypted);
 			
 			if ( !m_fs.exists(strDbName) )
 			{
-				m_db = DatabaseFactory.create(myURI);
+				m_db = DatabaseFactory.create(myURI, dbso);
 				
 				m_db.beginTransaction();
 				m_nInsideTransaction++;
@@ -233,8 +274,10 @@ public class SqliteStorage implements IDBStorage
 				}
 				m_db.commitTransaction();
 			}else
-				m_db = DatabaseFactory.open(myURI);
-				
+			{
+				m_db = DatabaseFactory.openOrCreate(myURI, dbso);
+			}
+			
 			if ( m_bPendingTransaction )
 				m_db.beginTransaction();
 			
@@ -249,12 +292,16 @@ public class SqliteStorage implements IDBStorage
 
 	public void startTransaction() throws DBException {
 		try{
+			//LOG.INFO("startTransaction START");
 			if ( m_db == null )
 				m_bPendingTransaction = true;
 			else
 				m_db.beginTransaction();
 			
 			m_nInsideTransaction++;
+			m_bNeedProcessCallback = false;
+			
+			//LOG.INFO("startTransaction END");
 		}catch(DatabaseException exc ){
 			throw new DBException(exc);
 		}
@@ -262,14 +309,20 @@ public class SqliteStorage implements IDBStorage
 	
 	public void onBeforeCommit() throws DBException
 	{
+		if ( !m_bNeedProcessCallback )
+			return;
+		
+		//LOG.INFO("onBeforeCommit START");
 		processCallbackData();
+		//LOG.INFO("onBeforeCommit END");
 	}
 	
 	public void commit() throws DBException {
 		try{
+			//LOG.INFO("commit START");
 			if ( m_db!= null )
 				m_db.commitTransaction();
-			
+			//LOG.INFO("commit END");
 		}catch(DatabaseException exc ){
 			throw new DBException(exc);
 		}finally
@@ -295,7 +348,20 @@ public class SqliteStorage implements IDBStorage
 
 	public void close() throws DBException 
 	{
-		try{
+		try
+		{
+			/*Enumeration values = m_mapStatements.elements();
+			while( values.hasMoreElements() )
+			{
+				Statement st = (Statement)values.nextElement();
+				try{
+					if ( st != null )
+						st.close();
+				}catch( DatabaseException exc  )
+				{
+					LOG.ERROR("close statement failed.", exc);
+				}
+			}*/
 			if ( m_db!= null )
 				m_db.close();
 			
@@ -309,7 +375,7 @@ public class SqliteStorage implements IDBStorage
 	{
 		if ( m_dbCallback == null )
 			return;
-		{
+/*		{
 			IDBResult rows2Insert = executeSQL("SELECT * FROM object_attribs_to_insert", null, false);
 			if ( rows2Insert == null || rows2Insert.isEnd() )
 			{
@@ -327,7 +393,7 @@ public class SqliteStorage implements IDBStorage
 					m_nInsideTransaction--;
 				}
 			}
-		}
+		}*/
 		
 		{
 			IDBResult rows2Delete = executeSQL("SELECT * FROM object_attribs_to_delete", null, false);

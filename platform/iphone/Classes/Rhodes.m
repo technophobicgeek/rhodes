@@ -9,7 +9,7 @@
 #include "logging/RhoLog.h"
 #include "common/RhoConf.h"
 #include "common/RhodesApp.h"
-#include "common/app_build_configs.h"
+//#include "common/app_build_configs.h"
 #import "SplitView/SplittedMainView.h"
 
 
@@ -35,7 +35,7 @@ static BOOL app_created = NO;
 
 @implementation Rhodes
 
-@synthesize window, player, cookies, signatureDelegate, nvDelegate, start_parameters;
+@synthesize window, player, cookies, signatureDelegate, nvDelegate;
 #ifdef __IPHONE_4_0
 @synthesize eventStore;
 #endif
@@ -293,9 +293,9 @@ static Rhodes *instance = NULL;
 	[nvDelegate setParentView:window];
 	[nvDelegate setPrevView:mainView.view];
 	@try {
-		CGRect rect = mainView.view.bounds;
-		//rect.origin.x = 0;
-		//rect.origin.y = 0;
+		CGRect rect = window.frame;
+		rect.origin.x = 0;
+		rect.origin.y = 0;
 		NVViewController* svc = [[NVViewController alloc] initWithRect:rect nvview:view delegate:nvDelegate];
 		[nvDelegate setNVViewControllerValue:svc];
 
@@ -693,7 +693,8 @@ static Rhodes *instance = NULL;
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
 
 	NSURL* url = [launchOptions objectForKey:UIApplicationLaunchOptionsURLKey];
-
+    NSLog(@"didFinishLaunchingWithOptions: %@", url);
+	
 	// store start parameter
 	NSString* start_parameter = [NSString stringWithUTF8String:""];
 	if (url != nil) {
@@ -705,72 +706,24 @@ static Rhodes *instance = NULL;
 			}
 		}
 	}	
-	self.start_parameters = [NSString stringWithUTF8String:[start_parameter UTF8String]];
-	
-	
 	[self doStartUp];
+    rho_rhodesapp_callUiCreatedCallback();
 	[self processDoSync:launchOptions];
-	
-	/*
-	BOOL rhogallery_only = rho_conf_getBool("rhogallery_only_app");
-	
-	// check for only from gallery app
-	if (rhogallery_only) {
-		if ([start_parameter compare:@"rhogallery_app"] != NSOrderedSame) {
-			NSLog(@"ALERT ! Application should be executed only from RhoGallery application !!!");
-			exit(EXIT_SUCCESS);
-		}
-	}
-	 */
-	const char* security_token = get_app_build_config_item("security_token");
-	
-	if (security_token != NULL) {
-		NSString* ns_security_token = [NSString stringWithUTF8String:security_token];
-		if ([ns_security_token length] > 0) {
-			BOOL can_start = NO;
-			
-			NSString* security_token_key = [NSString stringWithUTF8String:"security_token="];
-			NSRange st_range = [start_parameter rangeOfString:security_token_key];	
-			if (st_range.location >= 0) {
-				NSString* tmp = [start_parameter substringFromIndex:(st_range.location + st_range.length)];
-				NSRange t_range = [tmp rangeOfString:@","];
-				if (t_range.location >= 0) {
-					tmp = [tmp substringToIndex:t_range.location];
-				}
-				t_range = [tmp rangeOfString:@" "];
-				if (t_range.location >= 0) {
-					tmp = [tmp substringToIndex:t_range.location];
-				}
-				
-				// check for app security_token
-				if ([tmp compare:ns_security_token] == NSOrderedSame) {
-					can_start = YES;
-				}
-			}
-			
-			if (!can_start) {
-				NSLog(@"ALERT ! SECURITY_TOKEN is not valid !!!");
-				exit(EXIT_SUCCESS);
-			}
-		}
-	}
-	
-	
+
+    if ( !rho_rhodesapp_canstartapp([start_parameter UTF8String], ", ") )
+    {
+		NSLog(@"This is hidden app and can be started only with security key.");
+		exit(EXIT_SUCCESS);
+    }
 	
 	return NO;
 }
 #endif
-
-- (void)applicationDidFinishLaunching:(UIApplication *)application {
-	self.start_parameters = [NSString stringWithUTF8String:""];
-
+/*
+- (void)applicationDidFinishLaunching:(UIApplication *)application 
+{
 	[self doStartUp];
-	BOOL rhogallery_only = rho_conf_getBool("rhogallery_only_app");
-	if (rhogallery_only) {
-		NSLog(@"ALERT ! Application should be executed only from RhoGallery application !!!");
-		exit(EXIT_SUCCESS);
-	}
-}
+} */
 
 #ifdef __IPHONE_3_0
 - (void)application:(UIApplication *)application didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken
@@ -828,6 +781,7 @@ static Rhodes *instance = NULL;
 
 - (void)applicationWillTerminate:(UIApplication *)application {
     RAWLOG_INFO("Runner will terminate");
+    rho_rhodesapp_callUiDestroyedCallback();
     [self saveLastUsedTime];
     rho_rhodesapp_destroy();
 }
@@ -869,14 +823,6 @@ static Rhodes *instance = NULL;
 @end
 
 // Native functions
-
-const char* rho_sys_get_start_params() {
-	if ([Rhodes sharedInstance].start_parameters == nil) {
-		return "";
-	}
-    return [[Rhodes sharedInstance].start_parameters UTF8String];
-}
-
 
 void rho_map_location(char* query) {
     [[Rhodes sharedInstance] mapLocation:[NSString stringWithUTF8String:query]];

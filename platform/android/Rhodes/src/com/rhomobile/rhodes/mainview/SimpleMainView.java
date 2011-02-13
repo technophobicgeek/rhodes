@@ -539,13 +539,29 @@ public class SimpleMainView implements MainView {
 		init(v, params);
 	}
 	
+	public void setWebBackgroundColor(int color) {
+		view.setBackgroundColor(color);
+		webView.setBackgroundColor(color);
+	}
+	
 	public void back(int index) {
 		RhodesService.navigateBack();
 	}
 	
-	public void goBack() {
+	public void goBack() 
+	{
 		restoreWebView();
-		webView.goBack();
+        
+        boolean bStartPage = RhodesService.isOnStartPage();
+        
+        if ( !bStartPage && webView.canGoBack() )		
+            webView.goBack();
+        else
+        {    
+	        RhodesActivity ra = RhodesActivity.getInstance();
+	        if ( ra != null )
+	            ra.moveTaskToBack(true);
+        }		
 	}
 
 	public void forward(int index) {

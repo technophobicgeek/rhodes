@@ -62,7 +62,10 @@ static ID initApp_mid;
 static ID onConfigConflicts_mid;
 static ID activateApp_mid;
 static ID deactivateApp_mid;
+static ID uiCreated_mid;
+static ID uiDestroyed_mid;
 static ID loadServerSources_mid;
+static ID loadAllSyncSources_mid;
 static ID resetDBOnSyncUserChanged_mid;
 
 static char* rb_type_to_s(VALUE obj);
@@ -210,7 +213,10 @@ void RhoRubyStart()
     CONST_ID(onConfigConflicts_mid, "on_config_conflicts");
     CONST_ID(activateApp_mid, "activate_app");
     CONST_ID(deactivateApp_mid, "deactivate_app");
+    CONST_ID(uiCreated_mid, "ui_created");
+    CONST_ID(uiDestroyed_mid, "ui_destroyed");
     CONST_ID(loadServerSources_mid,"load_server_sources");
+    CONST_ID(loadAllSyncSources_mid,"load_all_sync_sources");
     CONST_ID(resetDBOnSyncUserChanged_mid, "reset_db_on_sync_user_changed");
 
     //moduleRhom = rb_const_get(rb_cObject, rb_intern("Rhom"));
@@ -246,9 +252,24 @@ void rho_ruby_deactivateApp()
     rb_funcall(framework, deactivateApp_mid, 0);
 }
 
+void rho_ruby_uiCreated()
+{
+    rb_funcall(framework, uiCreated_mid, 0);
+}
+
+void rho_ruby_uiDestroyed()
+{
+    rb_funcall(framework, uiDestroyed_mid, 0);
+}
+
 void rho_ruby_loadserversources(const char* szData)
 {
     rb_funcall(framework, loadServerSources_mid, 1, rb_str_new2(szData) );
+}
+
+void rho_ruby_loadallsyncsources()
+{
+    rb_funcall(framework, loadAllSyncSources_mid, 0 );
 }
 
 void rho_ruby_reset_db_on_sync_user_changed()
@@ -611,6 +632,17 @@ void rho_ruby_unlock_mutex(VALUE val)
 void rho_ruby_raise_runtime(const char* szText)
 {
     rb_raise(rb_eRuntimeError, szText );
+}
+
+void rho_ruby_raise_argerror(const char *fmt, ...)
+{
+	va_list args;
+	VALUE mesg;
+
+	va_start(args, fmt);
+	mesg = rb_vsprintf(fmt, args);
+	va_end(args);
+	rb_exc_raise(rb_exc_new3(rb_eArgError, mesg));
 }
 
 VALUE rho_ruby_main_thread()

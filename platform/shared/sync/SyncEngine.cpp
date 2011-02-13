@@ -15,6 +15,11 @@
 #include "SyncProtocol_3.h"
 #include "net/URI.h"
 
+#ifdef _MSC_VER
+// Disable warnings about using "this" in member initializater list
+#pragma warning(disable: 4355)
+#endif
+
 namespace rho {
 namespace sync {
 IMPLEMENT_LOGCLASS(CSyncEngine,"Sync");
@@ -361,6 +366,13 @@ void CSyncEngine::applyChangedValues(db::CDBAdapter& db)
 
 void CSyncEngine::loadAllSources()
 {
+    if (isNoThreadedMode())
+        RhoAppAdapter.loadAllSyncSources();
+    else
+    {
+        NetResponse(resp,getNet().pushData( getNet().resolveUrl("/system/loadallsyncsources"), "", null ));
+    }
+
     m_sources.removeAllElements();
 
     Vector<String> arPartNames = db::CDBAdapter::getDBAllPartitionNames();

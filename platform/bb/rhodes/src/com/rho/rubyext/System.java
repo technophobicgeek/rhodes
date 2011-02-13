@@ -254,6 +254,18 @@ public class System {
 				}
 			}
 		});
+		klass.getSingletonClass().defineMethod( "get_start_params", new RubyNoArgMethod(){ 
+			protected RubyValue run(RubyValue receiver, RubyBlock block )
+			{
+				try 
+				{
+					return ObjectFactory.createString(RhodesApp.getStartParameters());
+				} catch(Exception e) {
+					LOG.ERROR("get_start_params failed", e);
+					throw (e instanceof RubyException ? (RubyException)e : new RubyException(e.getMessage()));
+				}
+			}
+		});
 		
 	}
     
@@ -297,7 +309,9 @@ public class System {
     		return ObjectFactory.createBoolean(DeviceInfo.isSimulator());
     	if ( strPropName.equalsIgnoreCase("has_calendar") )
     		return ObjectFactory.createBoolean(RhoCalendar.has_calendar());
-    	
+    	if ( strPropName.equalsIgnoreCase("has_touchscreen") )
+    		return ObjectFactory.createBoolean(rhomobile.RhodesApplication.getInstance().hasTouchScreen());
+    	    	
     	return RubyConstant.QNIL;
     }
 

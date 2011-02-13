@@ -5,7 +5,6 @@
 #include "common/RhodesApp.h"
 #include "common/StringConverter.h"
 #include "common/rhoparams.h"
-#include "common/app_build_configs.h"
 #include "rho/rubyext/GeoLocationImpl.h"
 #include "ruby/ext/rho/rhoruby.h"
 #include "net/NetRequestImpl.h"
@@ -46,14 +45,16 @@ HREGNOTIFY g_hNotify = NULL;
 String httpProxy;
 #endif
 
+static String g_strCmdLine;
+
 class CRhodesModule : public CAtlExeModuleT< CRhodesModule >
 {
 private:
 
 public :
-	bool ParseCommandLine(LPCTSTR lpCmdLine, HRESULT* pnRetCode ) throw( ) {
+	bool ParseCommandLine(LPCTSTR lpCmdLine, HRESULT* pnRetCode ) throw( ) 
+    {
 		m_nRestarting = 1;
-        //m_bRhoGalleryApp = false;
 		TCHAR szTokens[] = _T("-/");
 		LPCTSTR lpszToken = FindOneOf(lpCmdLine, szTokens);
         getRhoRootPath();
@@ -62,37 +63,6 @@ public :
 		{
 			if (WordCmpI(lpszToken, _T("Restarting"))==0) {
 				m_nRestarting = 10;
-			}
-			/*
-			if (WordCmpI(lpszToken, _T("rhogallery_app"))==0) {
-				m_bRhoGalleryApp = true;
-			}
-			*/
-			{ // -RhoStartParams:
-				rho::String cur_token = wce_wctomb(lpszToken);
-				rho::String start_params_key = "RhoStartParams:";
-				int sppos = cur_token.find(start_params_key.c_str(), 0, start_params_key.length());
-				if (sppos != string::npos) {
-					// extract start params
-					rho::String start_params = cur_token.substr(sppos+start_params_key.length(), cur_token.length() - start_params_key.length() - sppos);
-
-					// check start params for security_token
-
-					rho::String security_key = "security_token=";
-					int skpos = start_params.find(security_key.c_str(), 0, security_key.length());
-					if (skpos != string::npos) {
-						rho::String tmp = start_params.substr(skpos+security_key.length(), start_params.length() - security_key.length() - skpos);
-
-						int divider = tmp.find_first_of(" /-,");
-						if (divider != string::npos) {
-							m_strSecurityToken = tmp.substr(0, divider);
-						}
-						else {
-							m_strSecurityToken = tmp;
-						}
-					}
-
-				}
 			}
 
 #if defined(OS_WINDOWS)
@@ -165,32 +135,14 @@ public :
 		}
 
 		rho_logconf_Init(m_strRootPath.c_str());
-		/*
-        if ( RHOCONF().getBool("rhogallery_only_app") && !m_bRhoGalleryApp)
+
+        if ( !rho_rhodesapp_canstartapp(g_strCmdLine.c_str(), " /-,") )
         {
-            LOG(INFO) + "This is RhoGallery only app and can be started only from RhoGallery.";
-            return S_FALSE;
+			LOG(INFO) + "This is hidden app and can be started only with security key.";
+			return S_FALSE;
         }
-		*/
-		///*
-		{
-
-			const char* app_security_token_cc = get_app_build_config_item("security_token");
-			if (app_security_token_cc != NULL) {
-				rho::String app_security_token = app_security_token_cc;
-				if (app_security_token.length() > 0) {
-					if (app_security_token.compare(m_strSecurityToken) != 0) {
-						LOG(INFO) + "This is hidden app and can be started only with security key.";
-						return S_FALSE;
-					}
-				}
-			}
-		}
-		//*/
-
 
 		LOG(INFO) + "Rhodes started";
-
 #ifdef OS_WINDOWS
 		if (httpProxy.length() > 0) {
 			parseHttpProxyURI(httpProxy);
@@ -200,8 +152,6 @@ public :
 			}
 		}
 #endif
-			
-
         //::SetThreadPriority(GetCurrentThread(),10);
 
 		//Check for bundle directory is exists.
@@ -280,8 +230,16 @@ public :
         return S_OK;
     }
 
-	HWND GetManWindow() {
+	HWND GetMainWindow() {
 		return m_appWindow.m_hWnd;
+	}
+
+	CMainWindow* GetMainWindowObject() {
+		return &m_appWindow;
+	}
+
+	CMainWindow& GetAppWindow() {
+		return m_appWindow;
 	}
 
 	HWND GetWebViewWindow() {
@@ -467,19 +425,15 @@ private:
     CMainWindow m_appWindow;
     rho::String m_strRootPath;
 	int m_nRestarting;
-
-    bool m_bRhoGalleryApp;
-	rho::String m_strSecurityToken;
 };
 
 CRhodesModule _AtlModule;
 HINSTANCE rhoApplicationHINSTANCE = 0;
-
 //
 bool g_restartOnExit = false;
 //
 extern "C" int WINAPI _tWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/,
-                                LPTSTR /*lpCmdLine*/, int nShowCmd)
+                                LPTSTR lpCmdLine, int nShowCmd)
 {
 	INITCOMMONCONTROLSEX ctrl;
 
@@ -487,18 +441,29 @@ extern "C" int WINAPI _tWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/
 	
 	//Required to use datetime picker controls.
 	ctrl.dwSize = sizeof(ctrl);
-	ctrl.dwICC = ICC_DATE_CLASSES;
+	ctrl.dwICC = ICC_DATE_CLASSES|ICC_BAR_CLASSES;
 	InitCommonControlsEx(&ctrl);
+
+    g_strCmdLine = convertToStringA(lpCmdLine);
 
 	return _AtlModule.WinMain(nShowCmd);
 }
 
 extern "C" HWND getMainWnd() {
-	return _AtlModule.GetManWindow();
+	return _AtlModule.GetMainWindow();
+}
+
+CMainWindow& getAppWindow() 
+{
+	return _AtlModule.GetAppWindow();
 }
 
 extern "C" HWND getWebViewWnd() {
 	return _AtlModule.GetWebViewWindow();
+}
+
+CMainWindow* Rhodes_getMainWindow() {
+	return _AtlModule.GetMainWindowObject();
 }
 
 
@@ -512,62 +477,13 @@ extern "C" void rho_conf_show_log()
     ::PostMessage(getMainWnd(),WM_COMMAND,IDM_LOG,0);
 }
 
-extern "C" const char* rho_sys_get_start_params() {
-    return "";
-}
-
-
 //Hook for ruby call to refresh web view
 
 extern "C" void rho_net_impl_network_indicator(int active)
 {
     //TODO: rho_net_impl_network_indicator
 }
-
-extern "C" void create_nativebar(int bar_type, rho_param *p) {
-	//TODO: Implement me!
-}
-
-extern "C" void remove_nativebar() {
-	//TODO: Implement me!
-}
-
-extern "C" void nativebar_set_tab_badge(int index,char* val)
-{
-}
-
-extern "C" void nativebar_switch_tab(int index) {
-	//TODO: Implement me!
-}
-
-extern "C" VALUE nativebar_started() {
-    // TODO:
-    return rho_ruby_create_boolean(0);
-}
-
-
-extern "C" void create_native_toolbar(int bar_type, rho_param *p) {
-}
-
-RHO_GLOBAL void remove_native_toolbar() {
-}
-
-extern "C"  void create_native_tabbar(int bar_type, rho_param *p) {
-}
-
-extern "C"  void remove_native_tabbar() {
-}
-
-extern "C"  void native_tabbar_switch_tab(int index) {
-}
-
-extern "C"  void native_tabbar_set_tab_badge(int index,char *val) {
-}
-
-
-
-
-
+/*
 extern "C" void mapview_create(rho_param *p) {
     //TODO: mapview_create
 }
@@ -590,7 +506,7 @@ extern "C" double mapview_state_center_lon() {
     //TODO:
     return 0;
 }
-
+*/
 extern "C" void rho_map_location(char* query)
 {
 }
@@ -608,10 +524,6 @@ extern "C" void Init_openssl(void)
 //}
 
 extern "C" void Init_fcntl(void)
-{
-}
-
-extern "C" void Init_NavBar(void)
 {
 }
 
@@ -707,6 +619,63 @@ char* wce_wctomb(const wchar_t* w)
 		-1, pChar, charlength, NULL, NULL);
 
 	return pChar;
+}
+
+#endif
+
+
+#if !defined(_WIN32_WCE)
+#include <gdiplus.h>
+#include <Gdiplusinit.h>
+using namespace Gdiplus;
+
+#define   SelectBitmap(hdc, hbm)  ((HBITMAP)SelectObject((hdc), (HGDIOBJ)(HBITMAP)(hbm)))
+HBITMAP SHLoadImageFile(  LPCTSTR pszFileName )
+{
+    if ( !pszFileName || !*pszFileName )
+        return 0;
+
+    String strFileName = convertToStringA(pszFileName);
+    if ( String_endsWith(strFileName, ".bmp") )
+    {
+        return (HBITMAP)::LoadImage(NULL, pszFileName, IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE);
+    }
+
+    if ( !String_endsWith(strFileName, ".png") )
+        return 0;
+
+    static bool s_GDIInit = false;
+    if ( !s_GDIInit)
+    {
+        Gdiplus::GdiplusStartupInput gdiplusStartupInput;
+        ULONG_PTR gdiplusToken;
+        Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
+        s_GDIInit = true;
+    }
+
+    Gdiplus::Image* image = new Gdiplus::Image(convertToStringW(strFileName).c_str());
+    SizeF sizePng;
+    Status res = image->GetPhysicalDimension(&sizePng);
+
+    HDC hDC = GetDC(getMainWnd());
+
+    HDC hdcMem = CreateCompatibleDC(hDC);
+    HBITMAP hBitmap  = ::CreateCompatibleBitmap(hDC, (int)sizePng.Width, (int)sizePng.Height);
+    HBITMAP hbmOld = SelectBitmap(hdcMem, hBitmap);
+
+    CRect rc(0,0,(int)sizePng.Width, (int)sizePng.Height);
+	COLORREF clrOld = ::SetBkColor(hdcMem, RGB(255,255,255));
+	::ExtTextOut(hdcMem, 0, 0, ETO_OPAQUE, &rc, NULL, 0, NULL);
+	::SetBkColor(hdcMem, clrOld);
+
+    Gdiplus::Graphics grpx(hdcMem);
+    res = grpx.DrawImage(image, 0, 0, (int)sizePng.Width, (int)sizePng.Height);
+
+    SelectBitmap(hdcMem, hbmOld);
+    DeleteDC(hdcMem);
+    DeleteDC(hDC);
+
+    return hBitmap;
 }
 
 #endif

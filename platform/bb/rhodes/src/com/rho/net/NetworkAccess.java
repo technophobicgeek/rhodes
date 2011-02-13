@@ -7,6 +7,7 @@ import javax.microedition.io.HttpConnection;
 import javax.microedition.io.Connection;
 import javax.microedition.io.SocketConnection;
 
+import net.rim.device.api.io.SocketConnectionEnhanced;
 import net.rim.device.api.system.DeviceInfo;
 import net.rim.device.api.system.RadioInfo;
 import com.rho.BBVersionSpecific;
@@ -14,6 +15,7 @@ import com.rho.RhoEmptyLogger;
 import com.rho.RhoLogger;
 import com.rho.RhoConf;
 import com.rho.RhodesApp;
+import com.rho.Version;
 import com.rho.net.bb.BBHttpConnection;
 import net.rim.device.api.servicebook.ServiceRecord;
 import net.rim.device.api.servicebook.ServiceBook;
@@ -28,6 +30,31 @@ public class NetworkAccess implements INetworkAccess {
 	private static boolean networkConfigured = false;
 	private static boolean bes = true;
 	private static long  m_nMaxPacketSize = 0;
+	
+	void checkWAP(ServiceRecord[] records)
+	{
+        for(int i=0; i < records.length; i++)
+        {
+            //Search through all service records to find the
+            //valid non-Wi-Fi and non-MMS
+            //WAP 2.0 Gateway Service Record.
+            if (records[i].isValid() && !records[i].isDisabled())
+            {
+
+                if (records[i].getUid() != null && records[i].getUid().length() != 0)
+                {
+                    if ((records[i].getUid().toLowerCase().indexOf("wifi") == -1) &&
+                        (records[i].getUid().toLowerCase().indexOf("mms") == -1))
+                    {
+                    	 	URLsuffix = ";ConnectionUID=" + records[i].getUid()+";connectionhandler=none;deviceside=true";
+                    	 	networkConfigured = true;
+                    	 	LOG.INFO("Found WAP2 provider. Suffix: " + URLsuffix);                    	 	
+                            break;
+                    }
+                }
+            }
+        }
+	}
 	
 	public void configure() 
 	{
@@ -62,7 +89,9 @@ public class NetworkAccess implements INetworkAccess {
 					
 					break;
 				}
-				
+                
+                checkWAP(wifis);
+                
 				ServiceRecord[] srs = sb.getRecords();
 				// search for BIS-B transport
 				for (int i = 0; i < srs.length; i++) {
@@ -179,6 +208,17 @@ public class NetworkAccess implements INetworkAccess {
 		return (SocketConnection)baseConnect(strUrl, ignoreSuffix);
 	}
 	
+	void setConnectionTimeout(Connection conn, int nTimeOutMS)throws  java.io.IOException
+	{
+        Version.SoftVersion ver = Version.getSoftVersion();
+        if ( ver.nMajor < 6 )
+        {
+			SocketConnectionEnhanced sce = (SocketConnectionEnhanced) conn;
+			short sceOption = SocketConnectionEnhanced.READ_TIMEOUT;
+			sce.setSocketOptionEx(sceOption, nTimeOutMS);
+        }
+	}
+	
 	private Connection doConnect(String urlArg, boolean bThrowIOException) throws IOException
 	{
 		Connection conn = null;		
@@ -187,9 +227,20 @@ public class NetworkAccess implements INetworkAccess {
 			String url = new String(urlArg);
             if (url.startsWith("https"))
 				url += ";EndToEndDesired;RdHTTPS";
+
+			int nTimeoutMS = RhoConf.getInstance().getInt("net_timeout")*1000;
+			if (nTimeoutMS == 0)
+				nTimeoutMS = 30000; //30 sec by default
+			
+			if ( url.indexOf(";deviceside=true") == 0 && nTimeoutMS > 0 )
+				url += ";ConnectionTimeout=" + nTimeoutMS;
 			
 			LOG.INFO("Connect to url: " + url);
             conn = Connector.open(url, Connector.READ_WRITE, true);
+            
+            if ( url.indexOf(";deviceside=true") >= 0 && nTimeoutMS > 0 )
+            	setConnectionTimeout(conn, nTimeoutMS);
+            
 		} catch (java.io.InterruptedIOException ioe) 
 		{
 			LOG.ERROR("Connector.open InterruptedIOException", ioe );
@@ -227,16 +278,20 @@ public class NetworkAccess implements INetworkAccess {
 		//Try wifi first
 		if ( WIFIsuffix != null && isWifiActive() )
 		{
-			conn = doConnect(strUrl + WIFIsuffix + URLsuffix, false);
-			if ( conn == null )
-				conn = doConnect(strUrl + WIFIsuffix, false);				
+			conn = doConnect(strUrl + WIFIsuffix + (URLsuffix.startsWith(";ConnectionUID=")? "":URLsuffix), false);
+			//if ( conn == null )
+			//	conn = doConnect(strUrl + WIFIsuffix, false);				
 		}
 		
-		if ( conn == null )
+		if ( conn == null  )
 		{
-			conn = doConnect(strUrl + URLsuffix, false);
-			if ( conn == null && URLsuffix != null && URLsuffix.length() > 0 )
-				conn = doConnect(strUrl, true);				
+			if ( isNetworkAvailable() )
+			{
+				conn = doConnect(strUrl + URLsuffix, true);
+				//if ( conn == null && URLsuffix != null && URLsuffix.length() > 0 )
+				//	conn = doConnect(strUrl, true);
+			}else
+				throw new IOException("No network coverage.");				
 		}
 		
 		return conn;
@@ -245,16 +300,18 @@ public class NetworkAccess implements INetworkAccess {
 	public void close() {
 	}
 
-	public boolean isNetworkAvailable() {
+	public boolean isNetworkAvailable() 
+	{
 		if (!(RadioInfo.getState() == RadioInfo.STATE_ON))
 			return false;
 		if ((RadioInfo.getNetworkService() & RadioInfo.NETWORK_SERVICE_DATA) == 0)
 			return false;
-		if (bes)
-			return true;
-		if (URLsuffix == null)
-			return false;
-		return networkConfigured;
+		//if (bes)
+		//	return true;
+		//if (URLsuffix == null)
+		//	return false;
+		//return networkConfigured;
+		return true;
 	}
 	
 }

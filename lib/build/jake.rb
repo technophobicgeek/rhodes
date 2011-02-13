@@ -179,7 +179,7 @@ class Jake
         $getdump = true
       end
       
-      return ($failed == 0)
+      return true
   end
   
   def self.process_spec_results(start)
@@ -428,5 +428,19 @@ class Jake
     #puts args.to_s
     puts run("ant.bat",args,dir)
   end
+  
+  def self.modify_file_if_content_changed(file_name, f)
+    f.rewind
+    content = f.read()
+    old_content = File.exists?(file_name) ? File.read(file_name) : ""
+
+    if old_content != content  
+        puts "Modify #{file_name}"      
+        File.open(file_name, "w"){|file| file.write(content)}
+    end
+    
+    f.close
+  end
+  
 end
   

@@ -272,6 +272,17 @@ VALUE rho_sys_get_locale()
 	return rho_ruby_create_string(convertToStringA(szLang).c_str());
 }
 
+int rho_wmsys_has_touchscreen()
+{
+#ifdef OS_WINDOWS
+        return 1;
+#else
+        int aMouseInfo[3] = {0};
+        BOOL bRet = SystemParametersInfo(SPI_GETMOUSE, sizeof(aMouseInfo), aMouseInfo, 0);
+        return (bRet && aMouseInfo[0] != 0) ? 1 : 0;
+#endif
+}
+
 int rho_sysimpl_get_property(char* szPropName, VALUE* resValue)
 {
 	if (strcasecmp("has_camera",szPropName) == 0) 
@@ -359,6 +370,12 @@ int rho_sysimpl_get_property(char* szPropName, VALUE* resValue)
 	if (strcasecmp("has_calendar",szPropName) == 0)
     {
         *resValue = rho_ruby_create_boolean(1);
+        return 1;
+    }
+
+	if (strcasecmp("has_touchscreen",szPropName) == 0)
+    {
+        *resValue = rho_ruby_create_boolean( rho_wmsys_has_touchscreen() );
         return 1;
     }
 
@@ -461,16 +478,6 @@ void rho_sys_run_app(const char *appname, VALUE params)
     if ( params && !rho_ruby_is_NIL(params) )
     {
         convertToStringW(getStringFromValue(params), strParamsW);
-
-	/*
-        int nPos = strParamsW.find(L"rhogallery_app");
-        if ( nPos >= 0 )
-        {
-            if ( nPos == 0 || (nPos > 0 && strParamsW.at(nPos-1)!= '-' ) )
-                strParamsW.insert(nPos, L"-");
-        }
-	*/
-	strParamsW.insert(0, L"-RhoStartParams:");        
     }
 
     CRegKey oKey;

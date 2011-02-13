@@ -58,6 +58,8 @@ CMainWindow::CMainWindow()
 	mNativeViewFactory = NULL;
 	mNativeViewType = "";
 
+	mIsOpenedByURL = false;
+
 	m_bLoading = true;
 #if defined(_WIN32_WCE)
     memset(&m_sai, 0, sizeof(m_sai));
@@ -124,7 +126,7 @@ LRESULT CMainWindow::OnCreate(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*
     m_browser.Create(m_hWnd,
                      CWindow::rcDefault, // proper sizing is done in CMainWindow::OnSize
 					 TEXT("Microsoft.PIEDocView"), // ProgID of the control
-                     WS_CHILD | WS_BORDER, 0,
+                     WS_CHILD, 0,
                      ID_BROWSER);
 #else
 	LOGCONF().setLogView(&m_logView);
@@ -148,7 +150,7 @@ LRESULT CMainWindow::OnCreate(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*
 	m_browser.Create(m_hWnd,
                      CWindow::rcDefault, // proper sizing is done in CMainWindow::OnSize
 					 TEXT("Shell.Explorer"), // ProgID of the control
-                     WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN, 0,
+                     WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN, 0,
                      ID_BROWSER);
 	m_menuBar.Create(m_hWnd,CWindow::rcDefault);
 
@@ -226,14 +228,47 @@ LRESULT CMainWindow::OnCreate(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*
 #endif
 
 	RHO_ASSERT(SUCCEEDED(hr));
+
+	rho_rhodesapp_callUiCreatedCallback();
+
 Error:
 
     return SUCCEEDED(hr) ? 0 : -1;
 }
 
+void CMainWindow::performOnUiThread(rho::common::IRhoRunnable* pTask)
+{
+	PostMessage(WM_EXECUTE_RUNNABLE, 0, (LPARAM)pTask);
+}
+LRESULT CMainWindow::OnExecuteRunnable(UINT /*uMsg*/, WPARAM wParam, LPARAM lParam, BOOL& /*bHandled*/) 
+{
+    rho::common::IRhoRunnable* pTask = (rho::common::IRhoRunnable*)lParam;
+	if (pTask)
+    {
+		pTask->runObject();
+        delete pTask;
+    }
+	return 0;
+}	
 LRESULT CMainWindow::OnSetText(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& bHandled)
 {
     return TRUE;
+}
+LRESULT CMainWindow::OnNotify(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam, BOOL& bHandled)
+{
+    LPNMHDR pnmh = (LPNMHDR) lParam;
+    if(pnmh->hwndFrom == m_toolbar.m_hWnd)
+    {
+        LPNMCUSTOMDRAW lpNMCustomDraw = (LPNMCUSTOMDRAW) lParam;
+        CRect rect;
+        m_toolbar.GetClientRect(rect);
+        FillRect(lpNMCustomDraw->hdc, rect, (HBRUSH)GetStockObject(WHITE_BRUSH));
+        SetBkColor(lpNMCustomDraw->hdc, RGB(255, 0,0 ) );
+        SetTextColor(lpNMCustomDraw->hdc, RGB(255, 0,0 ) );
+        bHandled = TRUE;
+    }else
+        bHandled = FALSE;
+    return 1;
 }
 
 HWND CMainWindow::getWebViewHWND() {
@@ -255,6 +290,8 @@ void CMainWindow::showWebView() {
 
 LRESULT CMainWindow::OnDestroy(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& bHandled)
 {
+	rho_rhodesapp_callUiDestroyedCallback();
+
 #if defined (_WIN32_WCE)
     m_menuBar = NULL;
 #endif
@@ -285,39 +322,35 @@ LRESULT CMainWindow::OnSize(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam, BOO
 
 #if defined(OS_WINDOWS)
 	USES_CONVERSION;
-	LOG(TRACE) + "Seting browser client area size to: " + (int)LOWORD(lParam) + " x " + (int)(HIWORD(lParam)-m_menuBarHeight);
-	m_browser.MoveWindow(0, 0, LOWORD(lParam), HIWORD(lParam)-m_menuBarHeight);
+	LOG(TRACE) + "Seting browser client area size to: " + (int)LOWORD(lParam) + " x " + (int)(HIWORD(lParam)-m_menuBarHeight-m_toolbar.getHeight());
+	m_browser.MoveWindow(0, 0, LOWORD(lParam), HIWORD(lParam)-m_menuBarHeight-m_toolbar.getHeight());
 	if (m_menuBar.m_hWnd) {
 		m_menuBar.MoveWindow(0, HIWORD(lParam)-m_menuBarHeight, LOWORD(lParam), m_menuBarHeight);
 	}
+    if ( m_toolbar.m_hWnd )
+	    m_toolbar.MoveWindow(0, HIWORD(lParam)-m_menuBarHeight-m_toolbar.getHeight(), LOWORD(lParam), m_toolbar.getHeight());
 #else
-
     LOG(INFO)  + "OnSize: x=" + (int)(LOWORD(lParam)) + ";y=" + (int)(HIWORD(lParam));
 
-	m_browser.MoveWindow(0, 0, LOWORD(lParam), HIWORD(lParam));
+	m_browser.MoveWindow(0, 0, LOWORD(lParam), HIWORD(lParam)- m_toolbar.getHeight());
+
+    if ( m_toolbar.m_hWnd )
+        m_toolbar.MoveWindow(0, HIWORD(lParam)-m_toolbar.getHeight(), LOWORD(lParam), m_toolbar.getHeight());
 #endif
 
 	return 0;
 }
 
-LRESULT CMainWindow::OnPaint(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/)
+LRESULT CMainWindow::OnPaint(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& bHandled)
 {
 	PAINTSTRUCT ps;
 	HDC hDC = BeginPaint(&ps);
 
   	CSplashScreen& splash = RHODESAPP().getSplashScreen();
     splash.start();
-#ifdef _WIN32_WCE	
     StringW pathW = convertToStringW(RHODESAPP().getLoadingPngPath());
 
-	StringW path_wm_W = pathW.substr(0, pathW.length() - 3);
-	String wm_png = "wm.png";
-	path_wm_W.append(convertToStringW(wm_png));
-
-    HBITMAP hbitmap = SHLoadImageFile(path_wm_W.c_str());
-	if (!hbitmap) {
-		hbitmap = SHLoadImageFile(pathW.c_str());
-	}
+	HBITMAP hbitmap = SHLoadImageFile(pathW.c_str());
 		
 	if (!hbitmap)
 		return 0;
@@ -326,7 +359,7 @@ LRESULT CMainWindow::OnPaint(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/
 	GetObject(hbitmap, sizeof(bmp), &bmp);
 
 	HDC hdcMem = CreateCompatibleDC(hDC);
-	SelectObject(hdcMem, hbitmap);
+	HGDIOBJ resObj = SelectObject(hdcMem, hbitmap);
 
     CRect rcClient;
     GetClientRect(&rcClient);
@@ -344,16 +377,19 @@ LRESULT CMainWindow::OnPaint(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/
 		hdcMem, 0, 0, bmp.bmWidth, bmp.bmHeight, SRCCOPY);
 	//BitBlt(hDC, 0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN), hdcMem, 0, 0, SRCCOPY);
 
+    SelectObject(hdcMem, resObj);
 	DeleteObject(hbitmap);
-#endif //_WIN32_WCE
+	DeleteObject(hdcMem);
 
 	EndPaint(&ps);
+    bHandled = TRUE;
 	return 0;
 }
 
 LRESULT CMainWindow::OnActivate(UINT /*uMsg*/, WPARAM wParam, LPARAM lParam, BOOL& /*bHandled*/)
 {
     int fActive = LOWORD(wParam);
+	rho_rhodesapp_callAppActiveCallback(fActive);
 #if defined(_WIN32_WCE)
     // Notify shell of our WM_ACTIVATE message
     SHHandleWMActivate(m_hWnd, wParam, lParam, &m_sai, 0);
@@ -377,6 +413,40 @@ LRESULT CMainWindow::OnActivate(UINT /*uMsg*/, WPARAM wParam, LPARAM lParam, BOO
 
     return 0;
 }
+
+
+void CMainWindow::openNativeView(	NativeViewFactory* nativeViewFactory, 
+					NativeView* nativeView,
+					String nativeViewType) 
+{
+	mNativeView = nativeView;
+	mNativeViewFactory = nativeViewFactory;
+	mNativeViewType = nativeViewType;
+
+	HWND nvh = (HWND)mNativeView->getView();
+
+	::SetParent(nvh, m_hWnd);
+
+	RECT rect;
+	::GetWindowRect(getWebViewHWND(),&rect);
+
+	int x = 0;
+	int y = 0;
+	int w = rect.right - rect.left;
+	int h = rect.bottom - rect.top;
+
+	::SetWindowPos(nvh, HWND_TOP, x, y, w, h, SWP_SHOWWINDOW);
+
+	::ShowWindow(nvh, SW_SHOWNORMAL);
+	hideWebView();
+}
+
+void CMainWindow::closeNativeView() {
+	restoreWebView();
+}
+
+
+
 
 // return true if NativeView was created
 String CMainWindow::processForNativeView(String _url) {
@@ -411,31 +481,12 @@ String CMainWindow::processForNativeView(String _url) {
 			restoreWebView();
 			NativeView* nv = nvf->getNativeView(protocol.c_str());
 			if (nv != NULL) {
-				mNativeView = nv;
-				mNativeViewFactory = nvf;
-				mNativeViewType = protocol;
 
-				HWND nvh = (HWND)mNativeView->getView();
-
-
-				
-
-				::SetParent(nvh, m_hWnd);
-
-				RECT rect;
-				::GetWindowRect(getWebViewHWND(),&rect);
-
-				int x = 0;
-				int y = 0;
-				int w = rect.right - rect.left;
-				int h = rect.bottom - rect.top;
-
-				::SetWindowPos(nvh, HWND_TOP, x, y, w, h, SWP_SHOWWINDOW);
+				openNativeView(nvf, nv, protocol);
 
 				nv->navigate(navto.c_str());
-				
-				::ShowWindow(nvh, SW_SHOWNORMAL);
-				hideWebView();
+
+				mIsOpenedByURL = true;
 
 				return "";
 			}
@@ -462,7 +513,9 @@ String CMainWindow::processForNativeView(String _url) {
 			}
 		}
 	}
-	restoreWebView();
+	if (mIsOpenedByURL) {
+		restoreWebView();
+	}
 	return url;
 }
 
@@ -473,6 +526,7 @@ void CMainWindow::restoreWebView() {
 		mNativeView = NULL;
 		mNativeViewFactory = NULL;
 		mNativeViewType = "";
+		mIsOpenedByURL = false;
 		showWebView();
 	}
 }
@@ -516,7 +570,22 @@ LRESULT CMainWindow::OnExitCommand(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hW
 LRESULT CMainWindow::OnNavigateBackCommand(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
 {
 	restoreWebView();
-    m_spIWebBrowser2->GoBack();
+
+/*    bool bStartPage = RHODESAPP().isOnStartPage();
+
+    if ( bStartPage )
+        ShowWindow(SW_MINIMIZE);
+    else*/
+        m_spIWebBrowser2->GoBack();
+
+    return 0;
+}
+
+LRESULT CMainWindow::OnNavigateForwardCommand(WORD /*wNotifyCode*/, WORD /*wID*/, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
+{
+	restoreWebView();
+    m_spIWebBrowser2->GoForward();
+
     return 0;
 }
 
@@ -1077,7 +1146,8 @@ void CMainWindow::createCustomMenu()
     }
 
 	RECT  rect; 
-	m_browser.GetWindowRect(&rect);
+	GetWindowRect(&rect);
+    rect.bottom -= m_menuBarHeight;
 	sub.Attach(menu.GetSubMenu(0));
 	sub.TrackPopupMenu( TPM_RIGHTALIGN | TPM_BOTTOMALIGN | TPM_LEFTBUTTON | TPM_VERNEGANIMATION, 
 						rect.right-1, 
@@ -1138,5 +1208,11 @@ LRESULT CMainWindow::OnCustomMenuItemCommand (WORD /*wNotifyCode*/, WORD  wID, H
 
     oMenuItem.processCommand();
 
+    return 0;
+}
+LRESULT CMainWindow::OnCustomToolbarItemCommand (WORD /*wNotifyCode*/, WORD  wID, HWND /*hWndCtl*/, BOOL& /*bHandled*/)
+{	
+    int nItemPos = wID-ID_CUSTOM_TOOLBAR_ITEM_FIRST;
+    m_toolbar.processCommand(nItemPos);
     return 0;
 }

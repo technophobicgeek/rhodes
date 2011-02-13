@@ -34,11 +34,13 @@ void RhoRubyStart();
 void RhoRubyInitApp();
 //void RhoRubyThreadStart();
 //void RhoRubyThreadStop();
-void rho_ruby_init_nativebar();
 void rho_ruby_call_config_conflicts();
 void rho_ruby_activateApp();
 void rho_ruby_deactivateApp();
+void rho_ruby_uiCreated();
+void rho_ruby_uiDestroyed();
 void rho_ruby_loadserversources(const char* szData);
+void rho_ruby_loadallsyncsources();
 void rho_ruby_reset_db_on_sync_user_changed();
 void rho_ruby_start_threadidle();
 void rho_ruby_stop_threadidle();
@@ -115,6 +117,7 @@ void rho_ruby_lock_mutex(VALUE val);
 void rho_ruby_unlock_mutex(VALUE val);
 
 void rho_ruby_raise_runtime(const char* szText);
+void rho_ruby_raise_argerror(const char *fmt, ...);
 
 #define RHO_PARAM_UNKNWON 0
 #define RHO_PARAM_STRING 1

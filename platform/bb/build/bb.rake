@@ -81,9 +81,47 @@ def startsim(hidden=false)
     args << "/no-guibacklight"
   end
         
-  args << "/app-param=JvmDebugFile:"+Jake.get_absolute($app_config["applog"])
+  args << "/app-param=JvmDebugFile:"+Jake.get_absolute($app_config["applog"]) if $app_config["applog"] && $app_config["applog"].length() > 0
 
   Jake.run2 command, args, {:directory => jde + "/simulator", :nowait => true}
+end
+
+def load_to_sim(is_wait)
+  sim = $config["env"]["paths"][$bbver]["sim"]
+  jde = $config["env"]["paths"][$bbver]["jde"]
+
+  #cod_path = jde + "/simulator" + "/"+$outfilebase+".cod.pending"
+  cod_path = File.join( $targetdir, $outfilebase+".cod.pending")
+
+  puts "cod_path : #{cod_path}"
+  
+  command = jde + "/simulator/fledgecontroller.exe"
+  args = []
+  args << "/session="+sim
+  args << "/execute=LoadCod(\"#{cod_path}\")"
+
+  while(true)  
+    res_line = ""
+    Jake.run2( command, args, {:directory => jde + "/simulator"} ) do |line| 
+      puts "fledgecontroller return:" + line;
+      res_line = line
+    end  
+
+    if res_line && res_line.index("There is no Fledge instance running with session name")    
+      return false unless is_wait
+      puts "wait for simulator..."
+    else
+      break
+    end
+  end
+
+  
+  args = []
+  args << "/session="+sim
+  args << "/execute=LoadCod(\"updates.force\")"
+  Jake.run2 command, args, {:directory => jde + "/simulator", :nowait => true}  
+  
+  return true
 end
 
 def stopsim
@@ -151,8 +189,14 @@ namespace "config" do
     #$rubypath = "res/build-tools/RhoRuby.exe" #path to RhoRuby
 
     $bbver = $app_config["bbver"].to_s
-    $bb6 = true if $bbver == "6.0"
-    $use_sqlite = $bbver[0].to_i >= 5
+    unless $app_config[$current_platform] && $app_config[$current_platform]["ignore_bb6_suffix"]  && $app_config[$current_platform]['ignore_bb6_suffix'].to_s == '1'
+        $bb6 = true if $bbver[0].to_i >= 6
+        
+        puts "use bb6 suffix" if $bb6
+    end    
+    
+    use_sqlite = $app_config[$current_platform] && $app_config[$current_platform]['use_sqlite']  && $app_config[$current_platform]['use_sqlite'].to_s == '1'
+    $use_sqlite = $bbver[0].to_i >= 5 && use_sqlite ? true : false
     puts "$use_sqlite : #{$use_sqlite}"
     
     $builddir = $config["build"]["bbpath"] + "/build"
@@ -344,6 +388,7 @@ namespace "build" do
     
     task :devrhobundle => [:set_dev_outname,:rhobundle] do
       cp $preverified + "/RhoBundle.jar", "platform/bb/RhoBundle/RhoBundle.jar"
+	  #cp $preverified + "/RhoBundle.jar", "platform/bb/Rhodes/RhoBundle.jar"
       
       sdcardpath = $config["env"]["paths"][$bbver]["jde"] +"/simulator/sdcard/Rho/rhodes"
       
@@ -409,68 +454,61 @@ namespace "build" do
       create_jarmanifest()
         
       $stdout.flush
-      capabilities = File.join($builddir, "..", "..", "..", "platform", "bb", "RubyVM", "src", "com", "rho", "Capabilities.java")
-      
-      #if !FileUtils.uptodate?(capabilities,[File.join($app_path, "build.yml")])
-          puts "Modify Capabilities.java"
-          
-          File.open(capabilities, 'w') do |f|
-            f.puts "package com.rho;"
-            f.puts ""
-            f.puts "public class Capabilities {"
-            f.puts "  public static final boolean ENABLE_PUSH = #{has_push.to_s};"
-            f.puts "  public static final boolean RUNAS_SERVICE = #{has_push.to_s};"
-            f.puts "  public static final boolean USE_SQLITE = #{$use_sqlite.to_s};"
-            f.puts "}"
-          end
 
+      f = StringIO.new("", "w+")      
+      f.puts "package com.rho;"
+      f.puts ""
+      f.puts "public class Capabilities {"
+      f.puts "  public static final boolean ENABLE_PUSH = #{has_push.to_s};"
+      f.puts "  public static final boolean RUNAS_SERVICE = #{has_push.to_s};"
+      f.puts "  public static final boolean USE_SQLITE = #{$use_sqlite.to_s};"
+      f.puts "}"
 
-          extentries = []
+      Jake.modify_file_if_content_changed( File.join($builddir, "..", "..", "..", "platform", "bb", "RubyVM", "src", "com", "rho", "Capabilities.java"), f )      
+      extentries = []
 
-          if $app_config["extensions"]
-              $app_config["extensions"].each do |ext|
-                $app_config["extpaths"].each do |p|
-                  extpath = File.join(p, ext, 'ext')
-                  if RUBY_PLATFORM =~ /(win|w)32$/
-                    next unless File.exists? File.join(extpath, 'build.bat')
-                  else
-                    next unless File.executable? File.join(extpath, 'build')
-                  end
-                  
-                  extroot = File.join(p,ext)
-
-                  extyml = File.join(extroot, "ext.yml")
-                  if File.file? extyml
-                    extconf = Jake.config(File.open(extyml))
-                    javaentry = extconf["javaentry"]
-                    extentries << javaentry unless javaentry.nil?
-                  end
-
-                end
+      if $app_config["extensions"]
+          $app_config["extensions"].each do |ext|
+            $app_config["extpaths"].each do |p|
+              extpath = File.join(p, ext, 'ext')
+              if RUBY_PLATFORM =~ /(win|w)32$/
+                next unless File.exists? File.join(extpath, 'build.bat')
+              else
+                next unless File.executable? File.join(extpath, 'build')
               end
-          end
-            
-          exts = $startdir + "/platform/bb/RubyVM/src/com/rho/Extensions.java"
+              
+              extroot = File.join(p,ext)
 
-          File.open(exts, "w") do |f|
-            f.puts "// WARNING! THIS FILE IS GENERATED AUTOMATICALLY! DO NOT EDIT IT MANUALLY!"
-            f.puts "// Generated #{Time.now.to_s}"
-            f.puts "package com.rho; "
-            f.puts " "
-            f.puts "public class Extensions {"
-            f.puts " "
-            f.puts "public static String[] extensions = {"
+              extyml = File.join(extroot, "ext.yml")
+              if File.file? extyml
+                extconf = Jake.config(File.open(extyml))
+                javaentry = extconf["javaentry"]
+                extentries << javaentry unless javaentry.nil?
+              end
 
-            extentries.each do |entry|
-              f.puts '          "' + entry + '",'
             end
-
-            f.puts '""'
-            f.puts "};"
-            f.puts " "
-            f.puts "}"
           end
-      #end  
+      end
+
+      f = StringIO.new("", "w+")      
+      f.puts "// WARNING! THIS FILE IS GENERATED AUTOMATICALLY! DO NOT EDIT IT MANUALLY!"
+      #f.puts "// Generated #{Time.now.to_s}"
+      f.puts "package com.rho; "
+      f.puts " "
+      f.puts "public class Extensions {"
+      f.puts " "
+      f.puts "public static String[] extensions = {"
+
+      extentries.each do |entry|
+        f.puts '          "' + entry + '",'
+      end
+
+      f.puts '""'
+      f.puts "};"
+      f.puts " "
+      f.puts "}"
+      
+      Jake.modify_file_if_content_changed(File.join($startdir,"/platform/bb/RubyVM/src/com/rho/Extensions.java"), f)
 
     end
     
@@ -822,7 +860,7 @@ namespace "package" do
         $target_sim = true
     end
     
-#   desc "Package all production (all parts in one package) for simulator"
+    desc "Package all production (all parts in one package) for simulator"
     task :production_sim => [:set_simulator, :production] do
     end
 
@@ -921,8 +959,13 @@ end
 
 namespace "run" do
   namespace "bb" do
+
       task :stopmdsandsim => ["config:bb"] do
         stopsim  
+        stopmds
+      end
+
+      task :stopmds => ["config:bb"] do
         stopmds
       end
 
@@ -931,25 +974,27 @@ namespace "run" do
         startmds
         startsim
       end
-      
+
       task :spec => ["run:bb:stopmdsandsim", "clean:bb", "package:bb:production_sim"] do
         jde = $config["env"]["paths"][$bbver]["jde"]
         cp_r File.join($targetdir,"/."), jde + "/simulator"
         rm_rf jde + "/simulator/sdcard/Rho"
-        
-        log_name  = Jake.get_absolute($app_config["applog"] )
-        File.delete(log_name) if File.exist?(log_name)
+
+        log_name = jde + "/simulator/sdcard/Rho/" + $outfilebase + "/RhoLog.txt"
+        puts log_name
+        #log_name  = Jake.get_absolute($app_config["applog"] )
+        #File.delete(log_name) if File.exist?(log_name)
         
         startmds
         startsim(true)
 
         Jake.before_run_spec
         start = Time.now
-      
+
         while !File.exist?(log_name)
             sleep(1)
         end
-        
+
         io = File.new(log_name, "r")
         end_spec = false
         while !end_spec do
@@ -978,16 +1023,52 @@ namespace "run" do
         exit 0
       end
 
+    task :testsim => ["config:bb"] do
+      load_to_sim(false)
+    end
+
+	desc "Start Blackberry simulator"
+    task :startsim => ["config:bb"] do
+      startsim
+    end  
+
+    task :stopmdsandsim_ex => ["config:bb"] do
+        
+        stopsim if $bbver[0].to_i < 5
+
+        stopmds
+    end  
+
   end
-  
+
   desc "Builds everything, loads and starts bb sim and mds"
   task :bb => ["run:bb:stopmdsandsim", "package:bb:production_sim"] do
     jde = $config["env"]["paths"][$bbver]["jde"]
-    
+
     cp_r File.join($targetdir,"/."), jde + "/simulator"
     
     startmds
-    startsim
+    startsim 
+    
+    $stdout.flush
+  end
+
+  desc "Builds everything and loads application on simulator"
+  task :bbapp => ["run:bb:stopmdsandsim_ex", "package:bb:production_sim"] do
+    jde = $config["env"]["paths"][$bbver]["jde"]
+    
+    startmds
+
+    if $bbver[0].to_i < 5
+      cp_r File.join($targetdir,"/."), jde + "/simulator"
+      startsim 
+    elsif !load_to_sim(false)
+      cp_r File.join($targetdir,"/."), jde + "/simulator"
+      
+      startsim 
+      
+    end
+
     $stdout.flush
   end
 

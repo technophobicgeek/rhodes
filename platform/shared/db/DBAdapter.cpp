@@ -10,6 +10,7 @@
 #ifndef RHO_NO_RUBY 
 #include "ruby/ext/rho/rhoruby.h"
 #endif //RHO_NO_RUBY
+#include "common/app_build_configs.h"
 
 namespace rho{
 namespace db{
@@ -40,7 +41,7 @@ void SyncBlob_DeleteCallback(sqlite3_context* dbContext, int nArgs, sqlite3_valu
         CRhoFile::deleteFile(strFilePath.c_str());
     }
 
-    attrMgr.remove( nSrcID, szAttrName );
+    //attrMgr.remove( nSrcID, szAttrName );
 }
 
 void SyncBlob_UpdateCallback(sqlite3_context* dbContext, int nArgs, sqlite3_value** ppArgs)
@@ -68,10 +69,10 @@ void SyncBlob_DeleteSchemaCallback(sqlite3_context* dbContext, int nArgs, sqlite
 
 void SyncBlob_InsertCallback(sqlite3_context* dbContext, int nArgs, sqlite3_value** ppArgs)
 {
-    if ( nArgs < 2 )
-        return;
+    //if ( nArgs < 2 )
+    //    return;
 
-    CDBAdapter::getDBByHandle(sqlite3_context_db_handle(dbContext)).getAttrMgr().add( sqlite3_value_int(*(ppArgs)), (char*)sqlite3_value_text(*(ppArgs+1)) );
+    //CDBAdapter::getDBByHandle(sqlite3_context_db_handle(dbContext)).getAttrMgr().add( sqlite3_value_int(*(ppArgs)), (char*)sqlite3_value_text(*(ppArgs+1)) );
 }
 
 boolean CDBAdapter::checkDbError(int rc)
@@ -126,7 +127,9 @@ void CDBAdapter::open (String strDbPath, String strVer, boolean bTemp)
         return;
     //TODO: raise exception if error
 
-    if (RHOCONF().getBool("encrypt_database"))
+    //if (RHOCONF().getBool("encrypt_database"))
+    const char* szEncrypt = get_app_build_config_item("encrypt_database");
+    if ( szEncrypt && strcmp(szEncrypt, "1") == 0 )
     {
         common::CAutoPtr<common::IRhoClassFactory> factory = rho_impl_createClassFactory();
         m_ptrCrypt = factory->createRhoCrypt();
@@ -155,7 +158,7 @@ void CDBAdapter::open (String strDbPath, String strVer, boolean bTemp)
 
     sqlite3_busy_handler(m_dbHandle, onDBBusy, 0 );
 
-    getAttrMgr().load(*this);
+    //getAttrMgr().load(*this);
 
     //copy client_info table
     if ( !bTemp && !bExist && CRhoFile::isFileExist((strDbPath+"_oldver").c_str()) )
@@ -402,7 +405,7 @@ boolean CDBAdapter::isTableExist(String strTableName)
 
 void CDBAdapter::destroy_tables(const rho::Vector<rho::String>& arIncludeTables, const rho::Vector<rho::String>& arExcludeTables)
 {
-    getAttrMgr().reset(*this);
+    //getAttrMgr().reset(*this);
     CFilePath oFilePath(m_strDbPath);
 	String dbNewName  = oFilePath.changeBaseName("resetdbtemp.sqlite");
 
@@ -462,8 +465,76 @@ void CDBAdapter::copyTable(String tableName, CDBAdapter& dbFrom, CDBAdapter& dbT
     }
 }
 
+void CDBAdapter::updateAllAttribChanges()
+{
+    //Check for attrib = object
+    DBResult( res , executeSQL("SELECT object, source_id, update_type "
+        "FROM changed_values where attrib = 'object' and sent=0") );
+
+    if ( res.isEnd() )
+        return;
+
+    startTransaction();
+
+    Vector<String> arObj, arUpdateType;
+    Vector<int> arSrcID;
+    for( ; !res.isEnd(); res.next() )
+    {
+        arObj.addElement(res.getStringByIdx(0));
+        arSrcID.addElement(res.getIntByIdx(1));
+        arUpdateType.addElement(res.getStringByIdx(2));
+    }
+
+    for( int i = 0; i < (int)arObj.size(); i++ )
+    {
+        DBResult( resSrc , executeSQL("SELECT name, schema FROM sources where source_id=?", arSrcID.elementAt(i) ) );
+        boolean bSchemaSource = false;
+        String strTableName = "object_values";
+        if ( !resSrc.isEnd() )
+        {
+            bSchemaSource = resSrc.getStringByIdx(1).length() > 0;
+            if ( bSchemaSource )
+                strTableName = resSrc.getStringByIdx(0);
+        }
+
+        if (bSchemaSource)
+        {
+            DBResult( res2 , executeSQL((String("SELECT * FROM ") + strTableName + " where object=?").c_str(), arObj.elementAt(i) ) );
+            for( int j = 0; j < res2.getColCount(); j ++)
+            {
+                String strAttrib = res2.getColName(j);
+                String value = res2.getStringByIdx(j);
+                String attribType = getAttrMgr().isBlobAttr(arSrcID.elementAt(i), strAttrib.c_str()) ? "blob.file" : "";
+
+                executeSQLReportNonUnique("INSERT INTO changed_values (source_id,object,attrib,value,update_type,attrib_type,sent) VALUES(?,?,?,?,?,?,?)", 
+                    arSrcID.elementAt(i), arObj.elementAt(i), strAttrib, value, arUpdateType.elementAt(i), attribType, 0);
+            }
+        }else
+        {
+            DBResult( res2 , executeSQL((String("SELECT attrib, value FROM ") + strTableName + " where object=? and source_id=?").c_str(), 
+                arObj.elementAt(i), arSrcID.elementAt(i) ) );
+
+            for( ; !res2.isEnd(); res2.next() )
+            {
+                String strAttrib = res2.getStringByIdx(0);
+                String value = res2.getStringByIdx(1);
+                String attribType = getAttrMgr().isBlobAttr(arSrcID.elementAt(i), strAttrib.c_str()) ? "blob.file" : "";
+
+                executeSQLReportNonUnique("INSERT INTO changed_values (source_id,object,attrib,value,update_type,attrib_type,sent) VALUES(?,?,?,?,?,?,?)", 
+                    arSrcID.elementAt(i), arObj.elementAt(i), strAttrib, value, arUpdateType.elementAt(i), attribType, 0);
+            }
+        }
+    }
+
+    executeSQL("DELETE FROM changed_values WHERE attrib='object'"); 
+
+    endTransaction();
+}
+
 void CDBAdapter::copyChangedValues(CDBAdapter& db)
 {
+    updateAllAttribChanges();
+
     copyTable("changed_values", *this, db );
     {
         Vector<int> arOldSrcs;
@@ -691,7 +762,7 @@ DBResultPtr CDBAdapter::executeSQLReportNonUniqueEx( const char* szSt, Vector<St
         bind(res->getStatement(), i+1, arValues.elementAt(i));
 
     res->setReportNonUnique(true);
-    return executeStatement(res);
+    return executeStatement(res, szSt);
 }
 
 DBResultPtr CDBAdapter::executeSQLEx( const char* szSt, Vector<String>& arValues)
@@ -703,7 +774,7 @@ DBResultPtr CDBAdapter::executeSQLEx( const char* szSt, Vector<String>& arValues
     for (int i = 0; i < (int)arValues.size(); i++ )
         bind(res->getStatement(), i+1, arValues.elementAt(i));
 
-    return executeStatement(res);
+    return executeStatement(res, szSt);
 }
 
 DBResultPtr CDBAdapter::executeSQL( const char* szSt)
@@ -712,11 +783,13 @@ DBResultPtr CDBAdapter::executeSQL( const char* szSt)
     if ( res->getStatement() == null )
         return res;
 
-    return executeStatement(res);
+    return executeStatement(res, szSt);
 }
 
-DBResultPtr CDBAdapter::executeStatement(DBResultPtr& res)
+DBResultPtr CDBAdapter::executeStatement(DBResultPtr& res, const char* szSt)
 {
+    //LOG(INFO) + "executeStatement:" + szSt;
+
     int rc = sqlite3_step(res->getStatement());
     if ( rc != SQLITE_ROW )
     {
@@ -772,7 +845,7 @@ void CDBAdapter::endTransaction()
 	m_nTransactionCounter--;
 	if (m_dbHandle && m_nTransactionCounter == 0)
     {
-        getAttrMgr().save(*this);
+        //getAttrMgr().save(*this);
 		rc = sqlite3_exec(m_dbHandle, "END;",0,0,&zErr);
         checkDbError(rc);
     }
@@ -979,6 +1052,12 @@ int rho_db_is_table_exist(void* pDB, const char* szTableName)
 void rho_db_init_attr_manager()
 {
     rho::db::CDBAdapter::initAttrManager();
+}
+
+void rho_sync_update_blob_attribs(const char* szPartition, int source_id)
+{
+    rho::db::CDBAdapter& db = rho::db::CDBAdapter::getDB(szPartition);
+    db.getAttrMgr().loadBlobAttrs(db);
 }
 
 void rho_db_encrypt( const char* szPartition, int nPartLen, int size, unsigned char* data, unsigned char* dataOut )

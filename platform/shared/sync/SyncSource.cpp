@@ -142,12 +142,16 @@ boolean CSyncSource::syncClientChanges()
     boolean bSyncedServer = false;
     if ( isPendingClientChanges() )
     {
+     	LOG(INFO) + "Client has unconfirmed created items. Call server to update them.";
         syncServerChanges();
         bSyncedServer = true;
     }
 
     if ( bSyncedServer && isPendingClientChanges() )
+    {
+        LOG(INFO) + "Server does not sent created items. Stop sync.";
         getSync().setState(CSyncEngine::esStop);
+    }
     else
     {   
       	PROF_START("Pull");
@@ -230,6 +234,7 @@ void CSyncSource::doSyncClientChanges()
             {
                 getSync().setState(CSyncEngine::esStop);
                 m_nErrCode = RhoAppAdapter.getErrorFromResponse(resp);
+                m_strError = resp.getCharData();
             }
         }else
         {
@@ -238,6 +243,7 @@ void CSyncSource::doSyncClientChanges()
             {
                 getSync().setState(CSyncEngine::esStop);
                 m_nErrCode = RhoAppAdapter.getErrorFromResponse(resp);
+                m_strError = resp.getCharData();
             }
         }
     }
@@ -280,6 +286,10 @@ static void escapeDoubleQuotes(String& str)
 void CSyncSource::makePushBody_Ver3(String& strBody, const String& strUpdateType, boolean isSync)
 {
     getDB().Lock();
+
+    if ( isSync )
+        getDB().updateAllAttribChanges();
+
     DBResult( res , getDB().executeSQL("SELECT attrib, object, value, attrib_type "
         "FROM changed_values where source_id=? and update_type =? and sent<=1 ORDER BY object", getID(), strUpdateType.c_str() ) );
 
@@ -416,6 +426,7 @@ void CSyncSource::syncServerChanges()
         //const char* szData = "[{\"version\":3},{\"token\":\"\"},{\"count\":0},{\"progress_count\":28},{\"total_count\":28},{\"source-error\":{\"login-error\":{\"message\":\"s currently connected from another machine\"}}}]";
         //const char* szData = "[{\"version\":3},{\"token\":\"\"},{\"count\":0},{\"progress_count\":0},{\"total_count\":0},{\"create-error\":{\"0_broken_object_id\":{\"name\":\"wrongname\",\"an_attribute\":\"error create\"},\"0_broken_object_id-error\":{\"message\":\"error create\"}}}]";
         //const char* szData = "[{\"version\":3},{\"token\":\"35639160294387\"},{\"count\":3},{\"progress_count\":0},{\"total_count\":3},{\"metadata\":\"{\\\"foo\\\":\\\"bar\\\"}\",\"insert\":{\"1\":{\"price\":\"199.99\",\"brand\":\"Apple\",\"name\":\"iPhone\"}}}]";
+        //const char* szData = "[{\"version\":3},{\"token\":\"\"},{\"count\":0},{\"progress_count\":1},{\"total_count\":1},{\"update-error\":{\"1-error\":{\"message\":\"Update failed!\"},\"1\":{\"foo\":\"bar5\"}}}]";
 
         //LOG(INFO) + szData;
         PROF_START("Parse");
@@ -433,6 +444,73 @@ void CSyncSource::syncServerChanges()
 
     if ( getSync().isSchemaChanged() )
         getSync().stopSync();
+}
+
+boolean CSyncSource::processServerErrors(CJSONEntry& oCmds)
+{
+    if ( oCmds.hasName("source-error") )
+    {
+        CJSONEntry errSrc = oCmds.getEntry("source-error");
+        CJSONStructIterator errIter(errSrc);
+        for( ; !errIter.isEnd(); errIter.next() )
+        {
+            m_nErrCode = RhoAppAdapter.ERR_CUSTOMSYNCSERVER;
+            m_strError = errIter.getCurValue().getString("message");
+            m_strErrorType = errIter.getCurKey();
+        }
+    }else if ( oCmds.hasName("search-error") )
+    {
+        CJSONEntry errSrc = oCmds.getEntry("search-error");
+        CJSONStructIterator errIter(errSrc);
+        for( ; !errIter.isEnd(); errIter.next() )
+        {
+            m_nErrCode = RhoAppAdapter.ERR_CUSTOMSYNCSERVER;
+            m_strError = errIter.getCurValue().getString("message");
+            m_strErrorType = errIter.getCurKey();
+        }
+    }else if ( oCmds.hasName("create-error") )
+    {
+        m_nErrCode = RhoAppAdapter.ERR_CUSTOMSYNCSERVER;
+        m_strErrorType = "create-error";
+
+        CJSONEntry errSrc = oCmds.getEntry(m_strErrorType.c_str());
+        CJSONStructIterator errIter(errSrc);
+        for( ; !errIter.isEnd(); errIter.next() )
+        {
+            String strKey = errIter.getCurKey();
+            if ( String_endsWith(strKey, "-error") )
+                m_strError = errIter.getCurValue().getString("message");
+        }
+    }else if ( oCmds.hasName("update-error") )
+    {
+        m_nErrCode = RhoAppAdapter.ERR_CUSTOMSYNCSERVER;
+        m_strErrorType = "update-error";
+
+        CJSONEntry errSrc = oCmds.getEntry(m_strErrorType.c_str());
+        CJSONStructIterator errIter(errSrc);
+        for( ; !errIter.isEnd(); errIter.next() )
+        {
+            String strKey = errIter.getCurKey();
+            if ( String_endsWith(strKey, "-error") )
+                m_strError = errIter.getCurValue().getString("message");
+        }
+    }else if ( oCmds.hasName("delete-error") )
+    {
+        m_nErrCode = RhoAppAdapter.ERR_CUSTOMSYNCSERVER;
+        m_strErrorType = "delete-error";
+
+        CJSONEntry errSrc = oCmds.getEntry(m_strErrorType.c_str());
+        CJSONStructIterator errIter(errSrc);
+        for( ; !errIter.isEnd(); errIter.next() )
+        {
+            String strKey = errIter.getCurKey();
+            if ( String_endsWith(strKey, "-error") )
+                m_strError = errIter.getCurValue().getString("message");
+        }
+    }else
+        return false;
+
+    return true;
 }
 
 void CSyncSource::processServerResponse_ver3(CJSONArrayIterator& oJsonArr)
@@ -522,39 +600,7 @@ void CSyncSource::processServerResponse_ver3(CJSONArrayIterator& oJsonArr)
         if ( oCmds.hasName("schema-changed") )
         {
             getSync().setSchemaChanged(true);
-        }else if ( oCmds.hasName("source-error") )
-        {
-            CJSONEntry errSrc = oCmds.getEntry("source-error");
-            CJSONStructIterator errIter(errSrc);
-            for( ; !errIter.isEnd(); errIter.next() )
-            {
-                m_nErrCode = RhoAppAdapter.ERR_CUSTOMSYNCSERVER;
-                m_strError = errIter.getCurValue().getString("message");
-                m_strErrorType = errIter.getCurKey();
-            }
-        }else if ( oCmds.hasName("search-error") )
-        {
-            CJSONEntry errSrc = oCmds.getEntry("search-error");
-            CJSONStructIterator errIter(errSrc);
-            for( ; !errIter.isEnd(); errIter.next() )
-            {
-                m_nErrCode = RhoAppAdapter.ERR_CUSTOMSYNCSERVER;
-                m_strError = errIter.getCurValue().getString("message");
-                m_strErrorType = errIter.getCurKey();
-            }
-        }else if ( oCmds.hasName("create-error") )
-        {
-            m_nErrCode = RhoAppAdapter.ERR_CUSTOMSYNCSERVER;
-            m_strErrorType = "create-error";
-        }else if ( oCmds.hasName("update-error") )
-        {
-            m_nErrCode = RhoAppAdapter.ERR_CUSTOMSYNCSERVER;
-            m_strErrorType = "update-error";
-        }else if ( oCmds.hasName("delete-error") )
-        {
-            m_nErrCode = RhoAppAdapter.ERR_CUSTOMSYNCSERVER;
-            m_strErrorType = "delete-error";
-        }else
+        }else if ( !processServerErrors(oCmds) )
         {
             getDB().startTransaction();
 

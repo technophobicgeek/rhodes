@@ -186,7 +186,7 @@
 				RegisterOutput="false"
 				IgnoreImportLibrary="true"
 				UseUnicodeResponseFiles="false"
-				AdditionalDependencies="wininet.lib comsuppwd.lib ws2_32.lib Crypt32.lib"
+				AdditionalDependencies="wininet.lib comsuppwd.lib ws2_32.lib Crypt32.lib gdiplus.lib"
 				OutputFile="$(OutDir)/rhodes.exe"
 				LinkIncremental="2"
 				AdditionalLibraryDirectories="$(OutDir)"
@@ -568,7 +568,7 @@
 				RegisterOutput="false"
 				IgnoreImportLibrary="true"
 				UseUnicodeResponseFiles="false"
-				AdditionalDependencies="wininet.lib comsuppwd.lib ws2_32.lib Crypt32.lib"
+				AdditionalDependencies="wininet.lib comsuppwd.lib ws2_32.lib Crypt32.lib gdiplus.lib"
 				OutputFile="$(OutDir)/rhodes.exe"
 				LinkIncremental="1"
 				AdditionalLibraryDirectories="$(OutDir)"
@@ -1304,6 +1304,14 @@
 					RelativePath=".\rho\rubyext\GeoLocationImpl.h"
 					>
 				</File>
+                <File
+					RelativePath=".\rho\rubyext\NativeToolbar.cpp"
+					>
+				</File>
+				<File
+					RelativePath=".\rho\rubyext\NativeToolbar.h"
+					>
+				</File>				
 				<File
 					RelativePath=".\rho\rubyext\SystemImpl.cpp"
 					>
@@ -1414,6 +1422,26 @@
 			</File>
 			<File
 				RelativePath=".\bluetooth\Bluetooth.h"
+				>
+			</File>
+		</Filter>
+		<Filter
+			Name="MapView"
+			>
+			<File
+				RelativePath=".\MapView\Graphics.cpp"
+				>
+			</File>
+			<File
+				RelativePath=".\MapView\Graphics.h"
+				>
+			</File>
+			<File
+				RelativePath=".\MapView\MapViewManager.cpp"
+				>
+			</File>
+			<File
+				RelativePath=".\MapView\MapViewManager.h"
 				>
 			</File>
 		</Filter>

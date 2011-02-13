@@ -14,6 +14,9 @@
 #include "net/AsyncHttp.h"
 #include "rubyext/WebView.h"
 #include "rubyext/GeoLocation.h"
+#include "common/app_build_configs.h"
+
+#include <algorithm>
 
 #ifdef OS_WINCE
 #include <winsock.h>
@@ -34,6 +37,148 @@ namespace rho {
 namespace common{
 
 IMPLEMENT_LOGCLASS(CRhodesApp,"RhodesApp");
+String CRhodesApp::m_strStartParameters;
+
+class CAppCallbacksQueue : public CThreadQueue
+{
+    DEFINE_LOGCLASS;
+public:
+    enum callback_t
+    {
+        local_server_started,
+        ui_created,
+        app_activated
+    };
+
+public:
+    CAppCallbacksQueue(IRhoClassFactory *factory);
+	~CAppCallbacksQueue();
+
+    void call(callback_t type);
+
+private:
+    friend class Command;
+    struct Command : public IQueueCommand
+    {
+        callback_t type;
+        Command(callback_t t) :type(t) {}
+
+        boolean equals(IQueueCommand const &) {return false;}
+        String toString() {return CAppCallbacksQueue::toString(type);}
+    };
+
+    void processCommand(IQueueCommand* pCmd);
+
+    static char const *toString(int type);
+
+private:
+    callback_t m_expected;
+    Vector<int> m_commands;
+};
+IMPLEMENT_LOGCLASS(CAppCallbacksQueue,"AppCallbacks");
+
+char const *CAppCallbacksQueue::toString(int type)
+{
+    switch (type)
+    {
+    case local_server_started:
+        return "LOCAL-SERVER-STARTED";
+    case ui_created:
+        return "UI-CREATED";
+    case app_activated:
+        return "APP-ACTIVATED";
+    default:
+        return "UNKNOWN";
+    }
+}
+
+CAppCallbacksQueue::CAppCallbacksQueue(IRhoClassFactory *factory)
+    :CThreadQueue(factory), m_expected(local_server_started)
+{
+    CThreadQueue::setLogCategory(getLogCategory());
+    //setPollInterval(1);
+    start(epNormal);
+}
+
+CAppCallbacksQueue::~CAppCallbacksQueue()
+{
+	stop(1000);
+}
+
+void CAppCallbacksQueue::call(CAppCallbacksQueue::callback_t type)
+{
+    addQueueCommand(new Command(type));
+}
+
+void CAppCallbacksQueue::processCommand(IQueueCommand* pCmd)
+{
+    Command *cmd = (Command *)pCmd;
+    if (!cmd)
+        return;
+
+    if (cmd->type < m_expected)
+    {
+        RAWLOG_ERROR2("CAppCallbacksQueue: we've received command %s which is less than expected (%s) - ignore it",
+            toString(cmd->type), toString(m_expected));
+        return;
+    }
+
+    if (cmd->type > m_expected)
+    {
+        // Don't do that now
+        RAWTRACE2("CAppCallbacksQueue: we've received command %s which is greater than expected (%s) - postpone it",
+            toString(cmd->type), toString(m_expected));
+        m_commands.push_back(cmd->type);
+        std::sort(m_commands.begin(), m_commands.end());
+        return;
+    }
+
+    m_commands.insert(m_commands.begin(), cmd->type);
+    for (Vector<int>::const_iterator it = m_commands.begin(), lim = m_commands.end(); it != lim; ++it)
+    {
+        int type = *it;
+        RAWTRACE1("CAppCallbacksQueue: process command %s", toString(type));
+        switch (type)
+        {
+        case local_server_started:
+            // Nothing
+            break;
+        case ui_created:
+            {
+                common::CAutoPtr<common::IRhoClassFactory> factory = rho_impl_createClassFactory();
+                common::CAutoPtr<net::INetRequest> pNetRequest = factory->createNetRequest();
+                String strUrl = RHODESAPP().getBaseUrl();
+                strUrl += "/system/uicreated";
+                NetResponse(resp, pNetRequest->pullData( strUrl, null ) );
+                if ( !resp.isOK() )
+                    LOG(ERROR) + "activate app failed. Code: " + resp.getRespCode() + "; Error body: " + resp.getCharData();
+            }
+            break;
+        case app_activated:
+            {
+                static bool navigatedToStartUrl = false;
+                if (!navigatedToStartUrl)
+                {
+                    LOG(INFO) + "navigate to first start url";
+                    RHODESAPP().navigateToUrl(RHODESAPP().getFirstStartUrl());
+                    navigatedToStartUrl = true;
+                }
+
+                common::CAutoPtr<common::IRhoClassFactory> factory = rho_impl_createClassFactory();
+                common::CAutoPtr<net::INetRequest> pNetRequest = factory->createNetRequest();
+                String strUrl = RHODESAPP().getBaseUrl();
+                strUrl += "/system/activateapp";
+                NetResponse(resp, pNetRequest->pullData( strUrl, null ) );
+                if ( !resp.isOK() )
+                    LOG(ERROR) + "activate app failed. Code: " + resp.getRespCode() + "; Error body: " + resp.getCharData();
+            }
+            break;
+        }
+        if (type < app_activated)
+            m_expected = (callback_t)(type + 1);
+    }
+    m_commands.clear();
+}
 
 /*static*/ CRhodesApp* CRhodesApp::Create(const String& strRootPath)
 {
@@ -52,7 +197,8 @@ IMPLEMENT_LOGCLASS(CRhodesApp,"RhodesApp");
     m_pInstance = 0;
 }
 
-CRhodesApp::CRhodesApp(const String& strRootPath) : CRhodesAppBase(strRootPath)
+CRhodesApp::CRhodesApp(const String& strRootPath)
+    :CRhodesAppBase(strRootPath)
 {
     m_bExit = false;
     m_bDeactivationMode = false;
@@ -60,6 +206,7 @@ CRhodesApp::CRhodesApp(const String& strRootPath) : CRhodesAppBase(strRootPath)
 
     m_ptrFactory = rho_impl_createClassFactory();
     m_NetRequest = m_ptrFactory->createNetRequest();
+    m_appCallbacksQueue = new CAppCallbacksQueue(rho_impl_createClassFactory());
 
 #if defined( OS_WINCE ) || defined (OS_WINDOWS)
     //initializing winsock
@@ -97,14 +244,16 @@ void CRhodesApp::run()
 
     //rho_clientregister_create("iphone_client");
 #if defined( OS_WINCE ) || defined( OS_WINDOWS )
-    LOG(INFO) + "navigate to first start url";
-    RHODESAPP().navigateToUrl(RHODESAPP().getFirstStartUrl());
+//    LOG(INFO) + "navigate to first start url";
+//    RHODESAPP().navigateToUrl(RHODESAPP().getFirstStartUrl());
 #endif
 
     while (!m_bExit) {
         m_httpServer->run();
         if (m_bExit)
             break;
+
+        LOG(INFO) + "RhodesApp thread wait.";
         wait(-1);
     }
 
@@ -200,9 +349,28 @@ static void callback_deactivateapp(void *arg, String const &strQuery)
     rho_http_sendresponse(arg, strMsg.c_str());
 }
 
+static void callback_uicreated(void *arg, String const &strQuery)
+{
+    rho_ruby_uiCreated();
+    rho_http_sendresponse(arg, "");
+}
+
+static void callback_uidestroyed(void *arg, String const &strQuery)
+{
+    rho_ruby_uiDestroyed();
+    rho_http_sendresponse(arg, "");
+}
+
 static void callback_loadserversources(void *arg, String const &strQuery)
 {
     RhoAppAdapter.loadServerSources(strQuery);
+    String strMsg;
+    rho_http_sendresponse(arg, strMsg.c_str());
+}
+
+static void callback_loadallsyncsources(void *arg, String const &strQuery)
+{
+    RhoAppAdapter.loadAllSyncSources();
     String strMsg;
     rho_http_sendresponse(arg, strMsg.c_str());
 }
@@ -214,32 +382,22 @@ static void callback_resetDBOnSyncUserChanged(void *arg, String const &strQuery)
     rho_http_sendresponse(arg, strMsg.c_str());
 }
 
-class CRhoActivateApp
+void CRhodesApp::callUiCreatedCallback()
 {
-    String m_strUrl;
-public:
-    CRhoActivateApp(const String& strUrl) :m_strUrl(strUrl) {}
-    void run(common::CRhoThread &thisThread)
+    if (!m_appCallbacksQueue)
+        return;
+    ((CAppCallbacksQueue*)&*m_appCallbacksQueue)->call(CAppCallbacksQueue::ui_created);
+}
+
+void CRhodesApp::callUiDestroyedCallback()
+{
+    String strUrl = m_strHomeUrl + "/system/uidestroyed";
+    NetResponse(resp,getNet().pullData( strUrl, null ));
+    if ( !resp.isOK() )
     {
-        while (!rho_is_local_server_started())
-            thisThread.wait(1);
-
-        static bool navigatedToStartUrl = false;
-        if (!navigatedToStartUrl)
-        {
-            LOG(INFO) + "navigate to first start url";
-            RHODESAPP().navigateToUrl(RHODESAPP().getFirstStartUrl());
-            navigatedToStartUrl = true;
-        }
-	  //  RHODESAPP().getSplashScreen().hide();
-
-        common::CAutoPtr<common::IRhoClassFactory> factory = rho_impl_createClassFactory();
-        common::CAutoPtr<net::INetRequest> pNetRequest = factory->createNetRequest();
-        NetResponse(resp, pNetRequest->pullData( m_strUrl, null ) );
-        if ( !resp.isOK() )
-            LOG(ERROR) + "activate app failed. Code: " + resp.getRespCode() + "; Error body: " + resp.getCharData();
+        LOG(ERROR) + "UI destroy callback failed. Code: " + resp.getRespCode() + "; Error body: " + resp.getCharData();
     }
-};
+}
 
 void CRhodesApp::callAppActiveCallback(boolean bActive)
 {
@@ -249,15 +407,16 @@ void CRhodesApp::callAppActiveCallback(boolean bActive)
         // Restart server each time when we go to foreground
         if (m_activateCounter++ > 0)
         {
+#if !defined( OS_WINCE ) && !defined (OS_WINDOWS)
             m_httpServer->stop();
+#endif
             this->stopWait();
+
         }
-        
-        String strUrl = m_strHomeUrl + "/system/activateapp";
-        // Activation callback need to be runned in separate thread
-        // Otherwise UI thread will be blocked. This can cause deadlock if user defined
-        // activate callback contains code which need to hold UI thread for execute
-        rho_rhodesapp_call_in_thread( new CRhoActivateApp( strUrl ) );
+
+        if (!m_appCallbacksQueue)
+            return;
+        ((CAppCallbacksQueue*)&*m_appCallbacksQueue)->call(CAppCallbacksQueue::app_activated);
     }
     else
     {
@@ -458,8 +617,11 @@ void CRhodesApp::initHttpServer()
     m_httpServer->register_uri("/system/getrhomessage", callback_getrhomessage);
     m_httpServer->register_uri("/system/activateapp", callback_activateapp);
     m_httpServer->register_uri("/system/deactivateapp", callback_deactivateapp);
+    m_httpServer->register_uri("/system/uicreated", callback_uicreated);
+    m_httpServer->register_uri("/system/uidestroyed", callback_uidestroyed);
     m_httpServer->register_uri("/system/loadserversources", callback_loadserversources);
     m_httpServer->register_uri("/system/resetDBOnSyncUserChanged", callback_resetDBOnSyncUserChanged);
+    m_httpServer->register_uri("/system/loadallsyncsources", callback_loadallsyncsources);
 }
 
 const char* CRhodesApp::getFreeListeningPort()
@@ -659,6 +821,36 @@ const String& CRhodesApp::getStartUrl()
     return m_strStartUrl;
 }
 
+boolean CRhodesApp::isOnStartPage()
+{
+    String strStart = getStartUrl();
+    String strCurUrl = getCurrentUrl(0);
+
+    if ( strStart.compare(strCurUrl) == 0 )
+        return true;
+
+    //check for index
+    int nIndexLen = CHttpServer::isIndex(strStart);
+    if ( nIndexLen > 0 && String_startsWith(strStart, strCurUrl) )
+    {
+        return strncmp(strStart.c_str(), strCurUrl.c_str(), strStart.length() - nIndexLen - 1) == 0;
+    }
+
+    nIndexLen = CHttpServer::isIndex(strCurUrl);
+    if ( nIndexLen > 0 && String_startsWith(strCurUrl, strStart) )
+    {
+        return strncmp(strCurUrl.c_str(), strStart.c_str(), strCurUrl.length() - nIndexLen - 1) == 0;
+    }
+
+    return false;
+
+}
+
+const String& CRhodesApp::getBaseUrl()
+{
+    return m_strHomeUrl;
+}
+
 const String& CRhodesApp::getOptionsUrl()
 {
     m_strOptionsUrl = canonicalizeRhoUrl( RHOCONF().getString("options_path") );
@@ -852,6 +1044,9 @@ void CRhodesApp::callScreenRotationCallback(int width, int height, int degrees)
 
 void CRhodesApp::loadUrl(String url)
 {
+    if ( url.length() == 0 )
+        return;
+
     boolean callback = false;
     if (String_startsWith(url, "callback:") )
     {
@@ -860,6 +1055,22 @@ void CRhodesApp::loadUrl(String url)
     }else if ( strcasecmp(url.c_str(), "exit")==0 || strcasecmp(url.c_str(), "close") == 0 )
     {
         rho_sys_app_exit();
+        return;
+    }else if ( strcasecmp(url.c_str(), "options")==0 )
+    {
+        rho_webview_navigate(getOptionsUrl().c_str(), 0);
+        return;
+    }else if ( strcasecmp(url.c_str(), "home")==0 )
+    {
+        rho_webview_navigate(getStartUrl().c_str(), 0);
+        return;
+    }else if ( strcasecmp(url.c_str(), "refresh")==0 )
+    {
+        rho_webview_refresh(0);
+        return;
+    }else if ( strcasecmp(url.c_str(), "back")==0 )
+    {
+        navigateBack();
         return;
     }
 
@@ -874,11 +1085,17 @@ void CRhodesApp::loadUrl(String url)
         navigateToUrl(url);
 }
 
-boolean CRhodesApp::isLocalServerStarted()
+void CRhodesApp::notifyLocalServerStarted()
 {
-    if (!m_httpServer)
-        return false;
-    return m_httpServer->started();
+    static boolean already_notified = false;
+
+    if (already_notified)
+        return;
+
+    if (!m_appCallbacksQueue)
+        return;
+    ((CAppCallbacksQueue*)&*m_appCallbacksQueue)->call(CAppCallbacksQueue::local_server_started);
+    already_notified = true;
 }
 
 } //namespace common
@@ -886,6 +1103,7 @@ boolean CRhodesApp::isLocalServerStarted()
 
 extern "C" {
 
+using namespace rho;
 using namespace rho::common;
 unsigned long rho_rhodesapp_GetCallbackObject(int nIndex)
 {
@@ -1068,6 +1286,18 @@ void rho_rhodesapp_callAppActiveCallback(int nActive)
 		RHODESAPP().callAppActiveCallback(nActive!=0);
 }
 
+void rho_rhodesapp_callUiCreatedCallback()
+{
+    if ( rho::common::CRhodesApp::getInstance() )
+        RHODESAPP().callUiCreatedCallback();
+}
+
+void rho_rhodesapp_callUiDestroyedCallback()
+{
+    if ( rho::common::CRhodesApp::getInstance() )
+        RHODESAPP().callUiDestroyedCallback();
+}
+
 void rho_rhodesapp_setViewMenu(unsigned long valMenu)
 {
     RHODESAPP().getAppMenu().setAppMenu(valMenu);
@@ -1113,77 +1343,6 @@ int rho_conf_send_log()
     return RHODESAPP().sendLog();
 }
 
-static const char table64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-int rho_base64_encode(const char *src, int srclen, char *dst)
-{
-    if (srclen < 0)
-        srclen = strlen(src);
-    if (!dst)
-        return (srclen/3)*4 + (srclen%3 ? 4 : 0) + 1;
-    
-    int out = 0;
-    for(int in = 0; in < srclen; in += 3, out += 4) {
-        
-        unsigned x = 0;
-        int actual = 0;
-        for (int i = 0; i < 3; ++i) {
-            char c;
-            if (in + i >= srclen)
-                c = 0;
-            else {
-                c = src[in + i];
-                actual += 8;
-            }
-            x = (x << 8) + (unsigned char)c;
-        }
-        
-        for (int i = 0; i < 4; ++i) {
-            if (actual <= 0) {
-                dst[out + i] = '=';
-            }
-            else {
-                dst[out + i] = table64[(x >> 18) & 0x3F];
-                x <<= 6;
-                actual -= 6;
-            }
-        }
-    }
-    
-    dst[out++] = '\0';
-    return out;
-}
-
-int rho_base64_decode(const char *src, int srclen, char *dst)
-{
-    if (srclen < 0)
-        srclen = strlen(src);
-    // Do not decode in case if srclen can not be divided by 4
-    if (srclen%4)
-        return 0;
-    if (!dst)
-        return srclen*3/4 + 1;
-    
-    char *found;
-    int out = 0;
-    for (int in = 0; in < srclen; in += 4, out += 3) {
-        unsigned x = 0;
-        for (int i = 0; i < 4; ++i) {
-            if ((found = strchr(const_cast<char*>(table64), src[in + i])) != NULL)
-                x = (x << 6) + (unsigned int)(found - table64);
-            else if (src[in + i] == '=')
-                x <<= 6;
-        }
-        
-        for (int i = 0; i < 3; ++i) {
-            dst[out + i] = (unsigned char)((x >> 16) & 0xFF);
-            x <<= 8;
-        }
-    }
-    dst[out++] = '\0';
-    return out;
-}
-
 void rho_net_request(const char *url)
 {
     rho::common::CAutoPtr<rho::common::IRhoClassFactory> factory = rho_impl_createClassFactory();
@@ -1196,7 +1355,6 @@ void rho_net_request_with_data(const char *url, const char *str_body) {
     rho::common::CAutoPtr<rho::net::INetRequest> request = factory->createNetRequest();
     request->pushData(url, str_body, null);
 }
-	
 	
 void rho_rhodesapp_load_url(const char *url)
 {
@@ -1211,11 +1369,6 @@ int rho_rhodesapp_check_mode()
         return 0;
     }
     return 1;
-}
-
-int rho_is_local_server_started()
-{
-    return RHODESAPP().isLocalServerStarted();
 }
 
 #if defined(OS_ANDROID) && defined(RHO_LOG_ENABLED)
@@ -1240,5 +1393,32 @@ void rho_free_callbackdata(void* pData)
 {
 	//It is used in SyncClient.
 }
-	
+
+int rho_rhodesapp_canstartapp(const char* szCmdLine, const char* szSeparators)
+{
+    CRhodesApp::setStartParameters(szCmdLine);
+
+	const char* szAppSecToken = get_app_build_config_item("security_token");
+    if ( !szAppSecToken || !*szAppSecToken)
+        return 1;
+
+    String strCmdLineSecToken;
+	String security_key = "security_token=";
+    String strCmdLine = szCmdLine ? szCmdLine : "";
+
+	int skpos = strCmdLine.find(security_key);
+	if ((String::size_type)skpos != String::npos) 
+    {
+		String tmp = strCmdLine.substr(skpos+security_key.length(), strCmdLine.length() - security_key.length() - skpos);
+
+		int divider = tmp.find_first_of(szSeparators);
+		if ((String::size_type)divider != String::npos)
+			strCmdLineSecToken = tmp.substr(0, divider);
+		else
+			strCmdLineSecToken = tmp;
+	}
+
+    return strCmdLineSecToken.compare(szAppSecToken) != 0 ? 0 : 1;
+}
+
 } //extern "C"
