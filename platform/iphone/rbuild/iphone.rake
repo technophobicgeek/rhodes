@@ -252,7 +252,7 @@ namespace "config" do
     $bindir = Jake.get_absolute(iphonepath) + "/bin"
     $srcdir =  $bindir + "/RhoBundle"
     $targetdir = iphonepath + "/target" 
-    $excludelib = ['**/builtinME.rb','**/ServeME.rb','**/TestServe.rb']
+    $excludelib = ['**/builtinME.rb','**/ServeME.rb','**/dateME.rb','**/rationalME.rb']
     $tmpdir =  $bindir +"/tmp"
 
     $devroot = '/Developer' if $devroot.nil?
@@ -475,8 +475,8 @@ namespace "run" do
       Jake.before_run_spec
 
       puts 'kill iPhone Simulator'
-      'killall -9  "iPhone Simulator"'
-      'killall -9 iphonesim'
+      `killall -9  "iPhone Simulator"`
+      `killall -9 iphonesim`
 
       mkdir_p $tmpdir
       log_name  =   File.join($tmpdir, 'logout')
@@ -525,8 +525,8 @@ namespace "run" do
       $stdout.flush
 
       puts 'kill iPhone Simulator'
-      'killall -9  "iPhone Simulator"'
-      'killall -9 iphonesim'
+      `killall -9  "iPhone Simulator"`
+      `killall -9 iphonesim`
 
       $stdout.flush
 

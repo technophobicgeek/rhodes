@@ -7,7 +7,7 @@ USE_TRACES = false
 
 ANDROID_API_LEVEL_TO_MARKET_VERSION = {}
 ANDROID_MARKET_VERSION_TO_API_LEVEL = {}
-{2 => "1.1", 3 => "1.5", 4 => "1.6", 5 => "2.0", 6 => "2.0.1", 7 => "2.1", 8 => "2.2", 9 => "2.3"}.each do |k,v|
+{2 => "1.1", 3 => "1.5", 4 => "1.6", 5 => "2.0", 6 => "2.0.1", 7 => "2.1", 8 => "2.2", 9 => "2.3", 10 => "3.0", 11 => "3.0" }.each do |k,v|
   ANDROID_API_LEVEL_TO_MARKET_VERSION[k] = v
   ANDROID_MARKET_VERSION_TO_API_LEVEL[v] = k
 end
@@ -266,7 +266,7 @@ namespace "config" do
     $shareddir = File.join($androidpath, "..", "shared")
     $srcdir = File.join($bindir, "RhoBundle")
     $targetdir = File.join($bindir, "target")
-    $excludelib = ['**/builtinME.rb','**/ServeME.rb','**/TestServe.rb']
+    $excludelib = ['**/builtinME.rb','**/ServeME.rb','**/dateME.rb','**/rationalME.rb']
     $tmpdir = File.join($bindir, "tmp")
     $resourcedir = File.join($tmpdir, "resource")
     $libs = File.join($androidpath, "Rhodes", "libs")
@@ -277,6 +277,7 @@ namespace "config" do
     $vendor = $vendor.gsub(/^[^A-Za-z]/, '_').gsub(/[^A-Za-z0-9]/, '_').gsub(/_+/, '_').downcase
     $app_package_name = $app_config["android"] ? $app_config["android"]["package_name"] : nil
     $app_package_name = "com.#{$vendor}." + $appname.downcase.gsub(/[^A-Za-z_0-9]/, '') unless $app_package_name
+    $app_package_name.gsub!(/\.[\d]/, "._")
 
     $rhomanifest = File.join $androidpath, "Rhodes", "AndroidManifest.xml"
     $appmanifest = File.join $tmpdir, "AndroidManifest.xml"
@@ -367,6 +368,7 @@ namespace "config" do
     $adb = File.join( $androidsdkpath, "platform-tools", "adb" + $exe_ext ) unless File.exists? $adb
     $zipalign = File.join( $androidsdkpath, "tools", "zipalign" + $exe_ext )
     $androidjar = File.join($androidsdkpath, "platforms", $androidplatform, "android.jar")
+    $dxjar = File.join( $androidsdkpath, "platform-tools", "lib", "dx.jar")
 
     $keytool = File.join( $java, "keytool" + $exe_ext )
     $jarsigner = File.join( $java, "jarsigner" + $exe_ext )
@@ -1014,17 +1016,18 @@ namespace "build" do
           lines << line
         end
       end
-      lines << File.join($app_rjava_dir, "R.java")
-      lines << $app_android_r
-      lines << $app_native_libs_java
-      lines << $app_capabilities_java
-      lines << $app_push_java
+      lines << "\"" +File.join($app_rjava_dir, "R.java")+"\""
+      lines << "\"" +$app_android_r+"\""
+      lines << "\"" +$app_native_libs_java+"\""
+      lines << "\"" +$app_capabilities_java+"\""
+      lines << "\"" +$app_push_java+"\""
       if File.exists? File.join($extensionsdir, "ext_build.files")
         puts 'ext_build.files found ! Addditional files for compilation :'
         File.open(File.join($extensionsdir, "ext_build.files")) do |f|
           while line = f.gets
+            line=line.gsub("\n","\"")
             puts 'java file : ' + line
-            lines << line
+            lines << "\""+line
           end
         end
       else
@@ -1092,10 +1095,12 @@ namespace "package" do
   task :android => "build:android:all" do
     puts "Running dx utility"
     args = []
+    args << "-jar"
+    args << $dxjar
     args << "--dex"
     args << "--output=#{$bindir}/classes.dex"
     args << "#{$bindir}/Rhodes.jar"
-    puts Jake.run($dx, args)
+    puts Jake.run("java", args)
     unless $?.success?
       puts "Error running DX utility"
       exit 1
@@ -1371,10 +1376,14 @@ namespace "run" do
         start = Time.now
 
         puts "waiting for log"
-      
-        while !File.exist?(log_name)
-            get_app_log($appname, false, true)
-            sleep(1)
+        
+        for i in 0..60
+			if !File.exist?(log_name)
+				get_app_log($appname, false, true)
+				sleep(1)
+			else
+				break
+			end
         end
 
         puts "start read log"
@@ -1413,13 +1422,11 @@ namespace "run" do
     end
 
     task :phone_spec do
-      exit 1 if Jake.run_spec_app('android','phone_spec')
-      exit 0
+      exit Jake.run_spec_app('android','phone_spec')
     end
 
     task :framework_spec do
-      exit 1 if Jake.run_spec_app('android','framework_spec')
-      exit 0
+      exit Jake.run_spec_app('android','framework_spec')
     end
     
     task :emulator => "device:android:debug" do
@@ -1456,7 +1463,7 @@ namespace "run" do
 
       if !running
         # Start the emulator, check on it every 5 seconds until it's running
-        Thread.new { system("\"#{$emulator}\" -avd #{$avdname}") }
+        Thread.new { system("\"#{$emulator}\" -cpu-delay 0 -no-boot-anim -avd #{$avdname}") }
         puts "Waiting up to 180 seconds for emulator..."
         startedWaiting = Time.now
         adbRestarts = 1
@@ -1546,13 +1553,28 @@ namespace "uninstall" do
     args << flag
     args << "uninstall"
     args << $app_package_name
-    Jake.run($adb, args)
-    unless $?.success?
-      puts "Error uninstalling application"
-      exit 1
-    end
+    for i in 0..20
+		result = Jake.run($adb, args)
+		unless $?.success?
+			puts "Error uninstalling application"
+			exit 1
+		end
 
-    puts "Application uninstalled successfully"
+		if result.include?("Success")
+			puts "Application uninstalled successfully"
+			break
+		else
+			if result.include?("Failure")					
+				puts "Application is not installed on the device"
+				break
+			else		
+				puts "Error uninstalling application"
+				exit 1 if i == 20
+			end
+		end
+		sleep(5)
+    end
+    
   end
 
   namespace "android" do

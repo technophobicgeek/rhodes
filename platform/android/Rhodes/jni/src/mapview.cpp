@@ -99,8 +99,10 @@ public:
     void attach(JNIEnv *env, jobject jDevice);
     void setPinImage(JNIEnv *env, jobject bitmap);
     void setPinCalloutImage(JNIEnv *env, jobject bitmap);
-
-    rho_param *params() const {return m_params;}
+    void setPinCalloutLinkImage(JNIEnv *env, jobject bitmap);
+    void setESRILogoImage(JNIEnv *env, jobject bitmap);
+ 
+	rho_param *params() const {return m_params;}
 
     void setMapView(IMapView *mv);
     IMapView *mapView() const {return m_mapview;}
@@ -119,7 +121,9 @@ private:
     IMapView *m_mapview;
     jobject m_jdevice;
     std::auto_ptr<IDrawingImage> m_pin_image;
-	std::auto_ptr<IDrawingImage> m_pin_calloutimage;
+    std::auto_ptr<IDrawingImage> m_pin_calloutimage;
+    std::auto_ptr<IDrawingImage> m_pin_calloutlinkimage;
+    std::auto_ptr<IDrawingImage> m_esriLogo_image;
 };
 
 AndroidImage::AndroidImage(jobject bitmap)
@@ -266,6 +270,8 @@ void AndroidMapDevice::setMapView(IMapView *mv)
 		pin_info1.x_offset = 5;
 
         mv->setPinCalloutImage(m_pin_calloutimage.get(), pin_info1);
+        mv->setPinCalloutLinkImage(m_pin_calloutlinkimage.get(), pin_info1);
+		mv->setESRILogoImage(m_esriLogo_image.get());
 
     }
     RHO_MAP_TRACE("AndroidMapDevice: setMapView: finish");
@@ -293,7 +299,7 @@ void AndroidMapDevice::setPinImage(JNIEnv *env, jobject bitmap)
 
 void AndroidMapDevice::setPinCalloutImage(JNIEnv *env, jobject bitmap)
 {
-    RHO_MAP_TRACE("AndroidMapDevice: setPinImage: start");
+    RHO_MAP_TRACE("AndroidMapDevice: setPinCalloutImage: start");
     m_pin_calloutimage.reset(new AndroidImage(bitmap));
     IMapView *mv = mapView();
     if (mv) {
@@ -303,8 +309,35 @@ void AndroidMapDevice::setPinCalloutImage(JNIEnv *env, jobject bitmap)
 
         mv->setPinCalloutImage(m_pin_calloutimage.get(), pin_info);
     }
-    RHO_MAP_TRACE("AndroidMapDevice: setPinImage: finish");
+    RHO_MAP_TRACE("AndroidMapDevice: setPinCalloutImage: finish");
 }
+
+void AndroidMapDevice::setPinCalloutLinkImage(JNIEnv *env, jobject bitmap)
+{
+    RHO_MAP_TRACE("AndroidMapDevice: setPinCalloutLinkImage: start");
+    m_pin_calloutlinkimage.reset(new AndroidImage(bitmap));
+    IMapView *mv = mapView();
+    if (mv) {
+
+		PIN_INFO pin_info = {0};
+		pin_info.x_offset = 5;
+
+        mv->setPinCalloutLinkImage(m_pin_calloutlinkimage.get(), pin_info);
+    }
+    RHO_MAP_TRACE("AndroidMapDevice: setPinCalloutLinkImage: finish");
+}
+
+void AndroidMapDevice::setESRILogoImage(JNIEnv *env, jobject bitmap) {
+    RHO_MAP_TRACE("AndroidMapDevice: setESRILogoImage: start");
+    m_esriLogo_image.reset(new AndroidImage(bitmap));
+    IMapView *mv = mapView();
+    if (mv) {
+        mv->setESRILogoImage(m_esriLogo_image.get());
+    }
+    RHO_MAP_TRACE("AndroidMapDevice: setESRILogoImage: finish");
+}
+
+
 
 IDrawingImage *AndroidMapDevice::createImage(String const &path, bool useAlpha)
 {
@@ -456,6 +489,25 @@ RHO_GLOBAL void JNICALL Java_com_rhomobile_rhodes_mapview_MapView_setPinCalloutI
     d->setPinCalloutImage(env, bitmap);
     RHO_MAP_TRACE("Java_com_rhomobile_rhodes_mapview_MapView_setPinCalloutImage: finish");
 }
+
+RHO_GLOBAL void JNICALL Java_com_rhomobile_rhodes_mapview_MapView_setPinCalloutLinkImage
+  (JNIEnv *env, jobject, jlong nativeDevice, jobject bitmap)
+{
+    RHO_MAP_TRACE("Java_com_rhomobile_rhodes_mapview_MapView_setPinCalloutLinkImage: start");
+    rhomap::AndroidMapDevice *d = device(env, nativeDevice);
+    d->setPinCalloutLinkImage(env, bitmap);
+    RHO_MAP_TRACE("Java_com_rhomobile_rhodes_mapview_MapView_setPinCalloutLinkImage: finish");
+}
+
+RHO_GLOBAL void JNICALL Java_com_rhomobile_rhodes_mapview_MapView_setESRILogoImage
+  (JNIEnv *env, jobject, jlong nativeDevice, jobject bitmap)
+{
+    RHO_MAP_TRACE("Java_com_rhomobile_rhodes_mapview_MapView_setESRILogoImage: start");
+    rhomap::AndroidMapDevice *d = device(env, nativeDevice);
+    d->setESRILogoImage(env, bitmap);
+    RHO_MAP_TRACE("Java_com_rhomobile_rhodes_mapview_MapView_setESRILogoImage: finish");
+}
+
 
 RHO_GLOBAL jint JNICALL Java_com_rhomobile_rhodes_mapview_MapView_minZoom
   (JNIEnv *env, jobject, jlong nativeDevice)
@@ -690,7 +742,9 @@ RHO_GLOBAL void mapview_create(rho_param *p)
                 eng_p = value;
         }
 	if (eng_p && eng_p->type == RHO_PARAM_STRING) {
-	   engine = eng_p->v.string;
+           if ((eng_p->v.string != NULL) && (eng_p->v.string[0] != 0)) {
+	      engine = eng_p->v.string;
+           }
 	}
     }
     if (strcasecmp(engine, "Google") == 0) {
@@ -701,7 +755,12 @@ RHO_GLOBAL void mapview_create(rho_param *p)
         google_mapview_create(p);
     }
     else {
-        s_mapdevice = new rhomap::AndroidMapDevice(p);
+		if (rho_map_check_param(p)) {
+			s_mapdevice = new rhomap::AndroidMapDevice(p);
+		}
+		else {
+		        RAWLOG_ERROR("MapView.create: wrong input parameters ! (parameters not validated !)");
+		}
     }
 }
 

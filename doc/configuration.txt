@@ -31,6 +31,17 @@ List of supported capabilities:
 * vibrate: allow to use hardware vibration mechanism
 * bluetooth: allow to use bluetooth hardware
 
+### RhoGallery Security Token
+
+To restrict access to the application it could be built with a security token. Specify security token in the build.yml and build application. Application built with security token can be started only if you provide this token as a parameter.  
+
+Specify in build.yml:
+	
+	security_token: 123
+
+Run application with special parameter:
+	:::ruby
+	System::run_app( 'app_name', "security_token=123" )
 
 ## Run time configuration
 Each Rhodes application contains a configuration file called "rhoconfig.txt".  A typical rhoconfig.txt will look like the following when an app is generated:
@@ -146,6 +157,10 @@ Turn on Persistent Storage usage mode for Blackberry
 	use_persistent_storage = 1
 	
 
+To use only models from bulk database. If true, application will not create models and will use models from bulk sync database
+
+	use_bulk_model = true
+	
 ### Last Visited Page
 Rhodes can keep track of the last visited page, so that next time you start your application, it will open to the same page. To enable this feature, use 
 

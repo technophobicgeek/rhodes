@@ -4,16 +4,13 @@
 #include "logging/RhoLog.h"
 #include "common/AutoPointer.h"
 #include "common/IRhoClassFactory.h"
+#include "net/INetRequest.h"
 
 typedef int (*RHOC_CALLBACK)(const char* szNotify, void* callback_data);
 
 namespace rho {
 namespace db {
     class CDBAdapter;
-}
-
-namespace net {
-    struct INetRequest;
 }
 
 namespace sync {
@@ -67,17 +64,13 @@ private:
     String m_strNotifyBody;
     String m_strStatusHide;
 
-   	common::CAutoPtr<net::INetRequest>     m_NetRequest;
+   	NetRequest     m_NetRequest;
 
-    net::INetRequest& getNet(){ return *m_NetRequest; }
+    net::CNetRequestWrapper getNet(){ return getNetRequest(&m_NetRequest); }
     CSyncEngine& getSync(){ return m_syncEngine; }
 public:
     CSyncNotify( CSyncEngine& syncEngine ) : m_syncEngine(syncEngine), m_bEnableReporting(false), 
         m_bEnableReportingGlobal(false){}
-
-    void setFactory(common::IRhoClassFactory* factory){ 
-        m_NetRequest = factory->createNetRequest();
-    }
 
     //Object notifications
     void fireObjectsNotification();
@@ -115,7 +108,7 @@ public:
     const String& getNotifyBody(){ return m_strNotifyBody; }
     void cleanNotifyBody(){ m_strNotifyBody = ""; }
 
-    void fireAllSyncNotifications( boolean bFinish, int nErrCode, String strError );
+    void fireAllSyncNotifications( boolean bFinish, int nErrCode, String strError, String strServerError );
     void reportSyncStatus(String status, int error, String strDetails);
     void showStatusPopup(const String& status);
 private:
@@ -124,7 +117,7 @@ private:
     String makeCreateObjectErrorBody(int nSrcID);
     void processSingleObject();
 
-    void doFireSyncNotification( CSyncSource* src, boolean bFinish, int nErrCode, String strError, String strParams);
+    void doFireSyncNotification( CSyncSource* src, boolean bFinish, int nErrCode, String strError, String strParams, String strServerError);
 
     boolean callNotify(const CSyncNotification& oNotify, const String& strBody );
 

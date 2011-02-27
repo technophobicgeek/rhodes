@@ -315,9 +315,9 @@ Return hash of all properties of the events found by specified parameters (index
 	* 'occurring' searches for events that have any part of the event occurring during the period specified by start_date and end_date. 
 * include_repeating -  if false then only search based on an Event's START and END values and do not calculate repeating occurrences of the event; if true then repeating occurrences of an Event are included during the search. 
  
-Create new event in the calendar, set properties of the event from passed as parameter hash, and save created calendar event (create):
+Create new event in the calendar, set properties of the event from passed as parameter hash, and save created calendar event (create), also return hash of all properties of the created event(include 'id' property):
 	:::ruby
-	Rho::RhoEvent.create!(@params['event'])
+	created_event = Rho::RhoEvent.create!(@params['event'])
 
 Find event in the calendar, update record properties from the has passed as parameter and save updated event. Event id passed in the hash (update):
 	:::ruby
@@ -866,6 +866,7 @@ NOTE: in order to use it on Android, you need to install Google Add-on API and r
 
 	:::ruby
 	map_params = {
+	     :provider => 'Google',
 	     :settings => {:map_type => "hybrid",:region => [@params['latitude'], @params['longitude'], 0.2, 0.2],
 	                   :zoom_enabled => true,:scroll_enabled => true,:shows_user_location => false,
 	                   :api_key => 'Google Maps API Key'},
@@ -876,6 +877,16 @@ NOTE: in order to use it on Android, you need to install Google Add-on API and r
 	                       :url => "/app/GeoLocation/show?city=Santa%20Clara"}]
 	}
 	MapView.create map_params
+
+
+Provider:
+
+There are two providers supported now - 'Google' and 'ESRI'. 'Google supported on iPhone, Android and BB. 'ESRI' supported on iPhone, Android, BB and WM. 
+
+For use ESRI maps in your projects on iPhone:
+
+* Install [http://resources.arcgis.com/content/arcgis-iphone/api  ESRI iOS SDK] - use default folders during installations !
+* Add "esri" to your applications extensions list in build.yml file.
 
 Map settings:
 

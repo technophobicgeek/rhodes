@@ -11,8 +11,7 @@
 //1. move classes to files, raname namespace to rho::map
 //2. image cache: remove only unvisible images
 //3. see TODO inside
-//4. when stop thread - cancel current net request. Add cancelCurrentCommand to ThreadQueue and call it from stop
-//5. move all platform code to appropriate folders
+//4. move all platform code to appropriate folders
 
 #ifdef min
 #undef min
@@ -63,7 +62,7 @@ static int const MAX_TILES_CACHE_SIZE = 100;
 static int const ANNOTATION_SENSITIVITY_AREA_RADIUS = 16;
 
 static int const BACKGROUND_COLOR = 0x7F7F7F;
-static int const CALLOUT_TEXT_COLOR = 0xff000000;
+static int const CALLOUT_TEXT_COLOR = 0xFFFFFFFF;
 
 static uint64 degreesToPixelsX(double n, int zoom)
 {
@@ -176,8 +175,7 @@ void ESRIMapView::Tile::swap(ESRIMapView::Tile &tile)
 
 IMPLEMENT_LOGCLASS(ESRIMapView::MapFetch,"MapFetch");
 ESRIMapView::MapFetch::MapFetch(ESRIMapView *view)
-    :CThreadQueue(rho_impl_createClassFactory()),
-    m_mapview(view), m_net_request(getFactory()->createNetRequest())
+    :CThreadQueue(), m_mapview(view)
 {
     CThreadQueue::setLogCategory(getLogCategory());
 
@@ -198,7 +196,7 @@ void ESRIMapView::MapFetch::fetchTile(String const &baseUrl, int zoom, uint64 la
 bool ESRIMapView::MapFetch::fetchData(String const &url, void **data, size_t *datasize)
 {
     RHO_MAP_TRACE1("fetchData: url=%s", url.c_str());
-    NetResponse(resp, m_net_request->doRequest("GET", url, "", 0, 0));
+    NetResponse resp = getNet().doRequest("GET", url, "", 0, 0);
     if (!resp.isOK())
         return false;
     *datasize = resp.getDataSize();
@@ -260,7 +258,7 @@ String ESRIMapView::MapFetch::Command::toString()
 
 IMPLEMENT_LOGCLASS(ESRIMapView::CacheUpdate,"CacheUpdate");
 ESRIMapView::CacheUpdate::CacheUpdate(ESRIMapView *view)
-    :CThreadQueue(rho_impl_createClassFactory()), m_mapview(view)
+    :CThreadQueue(), m_mapview(view)
 {
     CThreadQueue::setLogCategory(getLogCategory());
     start(epNormal);
@@ -434,7 +432,7 @@ ESRIMapView::ESRIMapView(IDrawingDevice *device)
     m_zoom_enabled(true), m_scroll_enabled(true), m_maptype("roadmap"),
     m_zoom(MIN_ZOOM), m_latitude(degreesToPixelsY(0, MAX_ZOOM)), m_longitude(degreesToPixelsX(0, MAX_ZOOM)),
     m_selected_annotation_index(-1),
-    m_pinCallout(0), m_pin(0)
+    m_pinCallout(0), m_pinCalloutLink(0), m_pin(0), m_esriLogo(0)
 {
     String url = RHOCONF().getString("esri_map_url_roadmap");
     if (url.empty())
@@ -669,10 +667,21 @@ void ESRIMapView::setPinImage(IDrawingImage *pin, PIN_INFO pin_info)
 	m_pin_info = pin_info;
 }
 
+void ESRIMapView::setESRILogoImage(IDrawingImage *esriLogoImg) {
+    m_esriLogo = esriLogoImg;	
+}
+
+
 void ESRIMapView::setPinCalloutImage(IDrawingImage *pinCallout, PIN_INFO pin_callout_info)
 {
     m_pinCallout = pinCallout;
-	m_pin_callout_info = pin_callout_info;
+    m_pin_callout_info = pin_callout_info;
+}
+
+void ESRIMapView::setPinCalloutLinkImage(IDrawingImage *pinCallout, PIN_INFO pin_callout_info)
+{
+    m_pinCalloutLink = pinCallout;
+    m_pin_calloutlink_info = pin_callout_info;
 }
 
 void ESRIMapView::fetchTile(int zoom, uint64 latitude, uint64 longitude)
@@ -725,6 +734,13 @@ void ESRIMapView::paint(IDrawingContext *context)
 
         if (m_selected_annotation_index >= 0)
             paintCallout(context, m_annotations.elementAt(m_selected_annotation_index));
+    }
+
+    // draw esri logo
+    if (m_esriLogo != 0) {
+       int left = 0;
+	   int top = m_height - m_esriLogo->height();
+	   context->drawImage(left, top, m_esriLogo);
     }
 
 /*
@@ -854,10 +870,10 @@ bool ESRIMapView::isClickOnCallout(int x, int y, Annotation const &ann)
 	int64 yLoc = toScreenCoordinateY(ann.latitude());
 
     int64 xCallout = xLoc - pinCalloutWidth/2;
-    //int64 yCallout = yLoc - m_pin->height() + m_pin_info.y_offset;
-    int64 yCallout = yLoc - m_pin->height() - pinCalloutHeight;//- m_pin_info.y_offset;
+    //int64 yCallout = yLoc - pinCalloutHeight + m_pin_info.y_offset;
+    int64 yCallout = yLoc + m_pin_info.y_offset - pinCalloutHeight;//- m_pin_info.y_offset;
 #ifndef OS_ANDROID
-	yCallout -= m_pin_info.y_offset;
+	//yCallout -= m_pin_info.y_offset;
 #endif
 
     return x > xCallout && x < xCallout + pinCalloutWidth && y > yCallout && y < yCallout + pinCalloutHeight;
@@ -876,13 +892,19 @@ void ESRIMapView::paintCallout(IDrawingContext *context, Annotation const &ann)
 	int64 yLoc = toScreenCoordinateY(ann.latitude());
 
     int64 xCallout = xLoc - pinCalloutWidth/2;
-    int64 yCallout = yLoc - m_pin->height() - pinCalloutHeight;
+    int64 yCallout = yLoc + m_pin_info.y_offset - pinCalloutHeight;//- m_pin->height() - pinCalloutHeight;
 #ifndef OS_ANDROID
-	yCallout -= m_pin_info.y_offset;
+	//yCallout -= m_pin_info.y_offset;
 #endif
 
-    context->drawImage((int)xCallout, (int)yCallout, m_pinCallout);
-
+    int reduceTextWidth = 0;
+    if (ann.url().size() > 0) {
+        context->drawImage((int)xCallout, (int)yCallout, m_pinCalloutLink);
+        reduceTextWidth = 32;
+    }
+    else {
+        context->drawImage((int)xCallout, (int)yCallout, m_pinCallout);
+    }
     String strText;
     if ( ann.title().length() > 0 )
         strText += ann.title();
@@ -897,8 +919,8 @@ void ESRIMapView::paintCallout(IDrawingContext *context, Annotation const &ann)
 
     int nTextX = (int)xCallout + m_pin_callout_info.x_offset;
     int nTextY = (int)yCallout + m_pin_callout_info.y_offset;
-    int nTextWidth = pinCalloutWidth - m_pin_callout_info.x_offset;
-    int nTextHeight = pinCalloutHeight - m_pin_callout_info.y_offset;
+    int nTextWidth = pinCalloutWidth - m_pin_callout_info.x_offset*2 - reduceTextWidth;
+    int nTextHeight = pinCalloutHeight - m_pin_callout_info.y_offset*2;
 
     if ( strText.length() > 0 )
         context->drawText( nTextX, nTextY, nTextWidth, nTextHeight, strText, CALLOUT_TEXT_COLOR);

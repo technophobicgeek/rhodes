@@ -165,7 +165,7 @@ jobject event_cast<jobject, VALUE>(VALUE rEvent)
     RHO_TRACE("eventFromRuby (3)");
     jmethodID mid = getJNIClassMethod(env, clsEvent, "<init>", "(Ljava/lang/String;)V");
     if (!mid) return NULL;
-    jobject jEvent = env->NewObject(clsEvent, mid, env->NewStringUTF(RSTRING_PTR(rId)));
+    jobject jEvent = env->NewObject(clsEvent, mid, rho_cast<jhstring>(RSTRING_PTR(rId)).get());
     if (!jEvent) return NULL;
 
     RHO_TRACE("eventFromRuby (4)");
@@ -173,7 +173,7 @@ jobject event_cast<jobject, VALUE>(VALUE rEvent)
     if (!NIL_P(rTitle))
     {
         Check_Type(rTitle, T_STRING);
-        env->SetObjectField(jEvent, fidTitle, env->NewStringUTF(RSTRING_PTR(rTitle)));
+        env->SetObjectField(jEvent, fidTitle, rho_cast<jhstring>(RSTRING_PTR(rTitle)).get());
     }
 
     RHO_TRACE("eventFromRuby (5)");
@@ -196,7 +196,7 @@ jobject event_cast<jobject, VALUE>(VALUE rEvent)
     if (!NIL_P(rLocation))
     {
         Check_Type(rLocation, T_STRING);
-        env->SetObjectField(jEvent, fidLocation, env->NewStringUTF(RSTRING_PTR(rLocation)));
+        env->SetObjectField(jEvent, fidLocation, rho_cast<jhstring>(RSTRING_PTR(rLocation)).get());
     }
 
     RHO_TRACE("eventFromRuby (9)");
@@ -204,7 +204,7 @@ jobject event_cast<jobject, VALUE>(VALUE rEvent)
     if (!NIL_P(rNotes))
     {
         Check_Type(rNotes, T_STRING);
-        env->SetObjectField(jEvent, fidNotes, env->NewStringUTF(RSTRING_PTR(rNotes)));
+        env->SetObjectField(jEvent, fidNotes, rho_cast<jhstring>(RSTRING_PTR(rNotes)).get());
     }
 
     RHO_TRACE("eventFromRuby (10)");
@@ -212,7 +212,7 @@ jobject event_cast<jobject, VALUE>(VALUE rEvent)
     if (!NIL_P(rPrivacy))
     {
         Check_Type(rPrivacy, T_STRING);
-        env->SetObjectField(jEvent, fidPrivacy, env->NewStringUTF(RSTRING_PTR(rPrivacy)));
+        env->SetObjectField(jEvent, fidPrivacy, rho_cast<jhstring>(RSTRING_PTR(rPrivacy)).get());
     }
 
     RHO_TRACE("eventFromRuby: return");
@@ -384,24 +384,32 @@ RHO_GLOBAL VALUE event_fetch_by_id(const char *id)
     return rEvent;
 }
 
-RHO_GLOBAL void event_save(VALUE rEvent)
+static std::string return_string;
+
+RHO_GLOBAL const char* event_save(VALUE rEvent)
 {
     JNIEnv *env = jnienv();
     jclass cls = getJNIClass(RHODES_JAVA_CLASS_EVENT_STORE);
-    if (!cls) return;
+    if (!cls) return NULL;
     jmethodID mid = getJNIClassStaticMethod(env, cls, "save", "(Lcom/rhomobile/rhodes/event/Event;)Ljava/lang/String;");
-    if (!mid) return;
+    if (!mid) return NULL;
 
     jobject jEvent = event_cast<jobject>(rEvent);
-    jstring jError = (jstring)env->CallStaticObjectMethod(cls, mid, jEvent);
+    jstring new_id = (jstring)env->CallStaticObjectMethod(cls, mid, jEvent);
     env->DeleteLocalRef(jEvent);
 
-    if (jError)
-    {
-        std::string error = rho_cast<std::string>(env, jError);
-        env->DeleteLocalRef(jError);
-        rb_raise(rb_eRuntimeError, "Event save failed: %s", error.c_str());
+    //if (jError)
+    //{
+    //    std::string error = rho_cast<std::string>(env, jError);
+    //   env->DeleteLocalRef(jError);
+    //    rb_raise(rb_eRuntimeError, "Event save failed: %s", error.c_str());
+    //}
+    if (new_id) {
+        return_string = rho_cast<std::string>(env, new_id);
+        env->DeleteLocalRef(new_id);
+        return return_string.c_str();
     }
+    return NULL;
 }
 
 RHO_GLOBAL void event_delete(const char *id)

@@ -25,24 +25,26 @@ public:
         virtual ~IQueueCommand(){};
         virtual boolean equals(const IQueueCommand& cmd) = 0;
         virtual String toString() = 0;
+        virtual void cancel(){}
     };
 
 private:
 
-    common::CAutoPtr<common::IRhoClassFactory> m_ptrFactory;
 	int           m_nPollInterval;
    	common::CMutex m_mxStackCommands;
 	LinkedListPtr<IQueueCommand*> m_stackCommands;
+    IQueueCommand* m_pCurCmd;
 
     boolean m_bNoThreaded;
 public:
-    CThreadQueue(common::IRhoClassFactory* factory);
+    CThreadQueue();
 
     ~CThreadQueue(void);
 
     virtual void addQueueCommand(IQueueCommand* pCmd);
     virtual void addQueueCommandToFront(IQueueCommand* pCmd);
 	virtual void run();
+    virtual void stop(unsigned int nTimeoutToKill);
 
 	void setPollInterval(int nInterval);
     int  getPollInterval()const{ return m_nPollInterval;}
@@ -50,7 +52,11 @@ public:
     boolean isNoThreadedMode(){ return m_bNoThreaded; }
     void setNonThreadedMode(boolean b){m_bNoThreaded = b;}
 
-    common::IRhoClassFactory* getFactory(){ return m_ptrFactory; }
+    void cancelCurrentCommand();
+    common::CMutex& getCommandLock(){ return m_mxStackCommands; }
+    IQueueCommand* getCurCommand(){ return m_pCurCmd; }
+    LinkedListPtr<IQueueCommand*>& getCommands(){ return m_stackCommands; }
+
 protected:
     virtual int getLastPollInterval(){ return 0;}
     virtual void processCommand(IQueueCommand* pCmd) = 0;
@@ -60,6 +66,7 @@ protected:
     boolean isAlreadyExist(IQueueCommand *pCmd);
 
     void processCommands();
+    void processCommandBase(IQueueCommand* pCmd);
 
     void addQueueCommandInt(IQueueCommand* pCmd);
     void addQueueCommandToFrontInt(IQueueCommand* pCmd);

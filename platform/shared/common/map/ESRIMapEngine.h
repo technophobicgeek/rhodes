@@ -4,6 +4,7 @@
 #include "common/map/MapEngine.h"
 #include "common/RhoThread.h"
 #include "common/ThreadQueue.h"
+#include "net/INetRequest.h"
 
 #include <list>
 
@@ -101,13 +102,19 @@ private:
 
         void fetchTile(String const &baseUrl, int zoom, uint64 latitude, uint64 longitude);
 
+        virtual void cancel()
+        {
+            m_NetRequest.cancel();
+        }
+
     private:
         void processCommand(IQueueCommand *cmd);
         bool fetchData(String const &url, void **data, size_t *datasize);
+        net::CNetRequestWrapper getNet(){ return getNetRequest(&m_NetRequest); }
 
     private:
         ESRIMapView *m_mapview;
-        std::auto_ptr<net::INetRequest> m_net_request;
+        NetRequest   m_NetRequest;
     };
 
     friend class CacheUpdate;
@@ -178,6 +185,9 @@ public:
 
     void setPinImage(IDrawingImage *pin, PIN_INFO pin_info);
     void setPinCalloutImage(IDrawingImage *pinCallout, PIN_INFO pin_callout_info);
+    void setPinCalloutLinkImage(IDrawingImage *pinCallout, PIN_INFO pin_callout_info);
+    void setESRILogoImage(IDrawingImage *esriLogoImg);
+
 
 private:
     String const &getMapUrl();
@@ -236,6 +246,9 @@ private:
 	PIN_INFO m_pin_info;
     IDrawingImage *m_pinCallout;
 	PIN_INFO m_pin_callout_info;
+    IDrawingImage *m_pinCalloutLink;
+	PIN_INFO m_pin_calloutlink_info;
+    IDrawingImage *m_esriLogo;
 };
 
 class ESRIMapEngine : public IMapEngine

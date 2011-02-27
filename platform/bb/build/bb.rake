@@ -190,13 +190,13 @@ namespace "config" do
 
     $bbver = $app_config["bbver"].to_s
     unless $app_config[$current_platform] && $app_config[$current_platform]["ignore_bb6_suffix"]  && $app_config[$current_platform]['ignore_bb6_suffix'].to_s == '1'
-        $bb6 = true if $bbver[0].to_i >= 6
+        $bb6 = true if $bbver.split('.')[0].to_i >= 6
         
         puts "use bb6 suffix" if $bb6
     end    
     
     use_sqlite = $app_config[$current_platform] && $app_config[$current_platform]['use_sqlite']  && $app_config[$current_platform]['use_sqlite'].to_s == '1'
-    $use_sqlite = $bbver[0].to_i >= 5 && use_sqlite ? true : false
+    $use_sqlite = $bbver.split('.')[0].to_i >= 5 && use_sqlite ? true : false
     puts "$use_sqlite : #{$use_sqlite}"
     
     $builddir = $config["build"]["bbpath"] + "/build"
@@ -614,12 +614,12 @@ namespace "build" do
         # http://supportforums.blackberry.com/rim/board/message?board.id=java_dev&thread.id=11152
         mkdir_p vsrcdir + "/com/rho/file"
         cp_r $builddir + "/../rhodes/src/com/rho/file/PersistRAFileImpl.java", vsrcdir + "/com/rho/file"
-        freplace( vsrcdir + "/com/rho/file/PersistRAFileImpl.java", /FileInfoWrapper/, $outfilebase + "_FileInfoWrapper" )
-        freplace( vsrcdir + "/com/rho/file/PersistRAFileImpl.java", /PageWrapper/, $outfilebase + "_PageWrapper" )
+        freplace( vsrcdir + "/com/rho/file/PersistRAFileImpl.java", /FileInfoWrapper/, "_" + $outfilebase + "_FileInfoWrapper" )
+        freplace( vsrcdir + "/com/rho/file/PersistRAFileImpl.java", /PageWrapper/, "_" + $outfilebase + "_PageWrapper" )
 
         fvsrc = File.new( vsrclist, "w" )
         Dir.glob( vsrcdir + "/**/*.java" ).each do |line|
-          fvsrc.puts line
+          fvsrc.puts "\""+line+"\""
         end
         fvsrc.close
 
@@ -1019,8 +1019,7 @@ namespace "run" do
       end
 
       task :phone_spec do
-        exit 1 if Jake.run_spec_app('bb','phone_spec')
-        exit 0
+        exit Jake.run_spec_app('bb','phone_spec')
       end
 
     task :testsim => ["config:bb"] do
@@ -1034,7 +1033,7 @@ namespace "run" do
 
     task :stopmdsandsim_ex => ["config:bb"] do
         
-        stopsim if $bbver[0].to_i < 5
+        stopsim if $bbver.split('.')[0].to_i < 5
 
         stopmds
     end  
@@ -1059,7 +1058,7 @@ namespace "run" do
     
     startmds
 
-    if $bbver[0].to_i < 5
+    if $bbver.split('.')[0].to_i < 5
       cp_r File.join($targetdir,"/."), jde + "/simulator"
       startsim 
     elsif !load_to_sim(false)

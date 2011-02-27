@@ -397,7 +397,7 @@ static BOOL makeHiddenUntilLoadContent = YES;
 
 - (void) didRotateFromInterfaceOrientation:(UIInterfaceOrientation)fromInterfaceOrientation
 {
-	if ([self interfaceOrientation] == fromInterfaceOrientation) {
+	if ([[UIApplication sharedApplication] statusBarOrientation] == fromInterfaceOrientation) {
 		return;
 	}
 	int width = rho_sys_get_screen_width();
@@ -503,6 +503,12 @@ static BOOL makeHiddenUntilLoadContent = YES;
 - (id)initWithMainView:(id<RhoMainView>)v parent:(UIWindow*)p {
     return [self initWithMainView:v parent:p bar_info:nil];
 }
+
+- (id)initWithParentView:(UIView *)p frame:(CGRect)frame webview:(UIWebView*)webview {
+    id result = [self init:p webView:webview frame:frame bar_info:nil web_bkg_color:nil];
+    return result;
+}
+
 
 - (id)initWithMainView:(id<RhoMainView>)v parent:(UIWindow*)p bar_info:(NSDictionary*)bar_info {
     CGRect frame = [[v view] frame];
@@ -977,13 +983,15 @@ static BOOL makeHiddenUntilLoadContent = YES;
 		self.view.hidden = NO;
 		[self.view.superview bringSubviewToFront:self.view];
     }
-	if ([self.webView superview] == nil) {
-		[self.view addSubview:self.webView];
+	if (self.nativeViewView == nil) {
+		if ([self.webView superview] == nil) {
+			[self.view addSubview:self.webView];
+		}
+		if (self.webView.hidden) {
+			self.webView.hidden = NO;
+			[self.webView.superview bringSubviewToFront:self.webView];
+		}
 	}
-	if (self.webView.hidden) {
-		self.webView.hidden = NO;
-		[self.webView.superview bringSubviewToFront:self.webView];
-    }
 	
 	if (!self.isBackgroundSetted) {
 		self.isBackgroundSetted = YES;
