@@ -17,6 +17,10 @@ extern void alert_stop();
 #define stop alert_stop
 extern void alert_loop();
 #define loop alert_loop
+extern void alert_pause();
+#define pause alert_pause
+extern void alert_set_volume_percent(void*);
+#define set_volume_percent alert_set_volume_percent
 %}
 
 %typemap(in) (rho_param *p) {
@@ -35,4 +39,6 @@ extern void show_status(char* szText, char* szHideLabel);
 
 extern void stop();
 extern void loop();
+extern void pause();
+extern void set_volume_percent(...);
 

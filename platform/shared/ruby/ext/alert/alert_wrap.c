@@ -1828,6 +1828,10 @@ extern void alert_stop();
 #define stop alert_stop
 extern void alert_loop();
 #define loop alert_loop
+extern void alert_pause();
+#define pause alert_pause
+extern void alert_set_volume_percent(void*);
+#define set_volume_percent alert_set_volume_percent
 
 
 SWIGINTERN swig_type_info*
@@ -2010,6 +2014,32 @@ _wrap_loop(int argc, VALUE *argv, VALUE self) {
     rb_raise(rb_eArgError, "wrong # of arguments(%d for 0)",argc); SWIG_fail;
   }
   loop();
+  return Qnil;
+fail:
+  return Qnil;
+}
+
+
+SWIGINTERN VALUE
+_wrap_pause(int argc, VALUE *argv, VALUE self) {
+  if ((argc < 0) || (argc > 0)) {
+    rb_raise(rb_eArgError, "wrong # of arguments(%d for 0)",argc); SWIG_fail;
+  }
+  pause();
+  return Qnil;
+fail:
+  return Qnil;
+}
+
+
+SWIGINTERN VALUE
+_wrap_set_volume_percent(int argc, VALUE *argv, VALUE self) {
+  void *arg1 = 0 ;
+  
+  if (argc < 0) {
+    rb_raise(rb_eArgError, "wrong # of arguments(%d for 0)",argc); SWIG_fail;
+  }
+  set_volume_percent(arg1);
   return Qnil;
 fail:
   return Qnil;
@@ -2300,5 +2330,7 @@ SWIGEXPORT void Init_Alert(void) {
   rb_define_module_function(mAlert, "show_status", _wrap_show_status, -1);
   rb_define_module_function(mAlert, "stop", _wrap_stop, -1);
   rb_define_module_function(mAlert, "loop", _wrap_loop, -1);
+  rb_define_module_function(mAlert, "pause", _wrap_pause, -1);
+  rb_define_module_function(mAlert, "set_volume_percent", _wrap_set_volume_percent, -1);
 }
 

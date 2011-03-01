@@ -58,6 +58,8 @@ public class Alert {
 	private static Dialog currentAlert = null;
 	private static TextView s_textView = null;
 	private static MediaPlayer currentMP = null;
+    private static AudioManager currentAM = null;
+    private static int maxVolume = 0;
 	
 	private static native void doCallback(String url, String id, String title);
 	
@@ -387,11 +389,13 @@ public class Alert {
 	public static void stop() {
 		try {
 			Logger.T(TAG, "stop");
-		    	if (currentMP == null) 
-			    return;
+            if (currentMP == null) 
+            return;
 
 			if(currentMP.isPlaying()){
 			  currentMP.stop();
+              currentMP.release();
+              currentMP = null;
 			}
 		}
 		catch (Exception e) {
@@ -401,8 +405,8 @@ public class Alert {
 	public static void loop() {
 		try {
 			Logger.T(TAG, "loop");
-		    	if (currentMP == null) 
-			    return;
+            if (currentMP == null)
+            return;
 
 			if(!currentMP.isLooping()){
 			  currentMP.setLooping(true);
@@ -412,5 +416,34 @@ public class Alert {
 			reportFail("loop", e);
 		}
 	}
+    public static void pause() {
+        try {
+            Logger.T(TAG, "pause");
+                if (currentMP == null)
+                return;
 
+            if(!currentMP.isPlaying()){
+              currentMP.pause();
+            }
+        }
+        catch (Exception e) {
+            reportFail("pause", e);
+        }
+    }
+
+    // Set volume as percent of max
+    public static void setVolumePercent(int percent){
+      try {
+        Logger.T(TAG, "setVolume " + Integer.toString(percent));
+        if(currentAM == null){
+          currentAM = (AudioManager) getSystemService(AUDIO_SERVICE);
+          maxVolume = currentAM.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+        }
+        int volume = maxVolume * (percent/100);
+        currentAM.setStreamVolume(AudioManager.STREAM_MUSIC, volume, AudioManager.FLAG_PLAY_SOUND);
+      }
+      catch (Exception e) {
+          reportFail("setVolume", e);
+      }
+    }
 }

@@ -103,3 +103,27 @@ RHO_GLOBAL void alert_loop()
     env->CallStaticVoidMethod(cls, mid);
 }
 
+
+RHO_GLOBAL void alert_pause()
+{
+    JNIEnv *env = jnienv();
+    jclass cls = getJNIClass(RHODES_JAVA_CLASS_ALERT);
+    if (!cls) return;
+    jmethodID mid = getJNIClassStaticMethod(env, cls, "pause", "()V");
+    if (!mid) return;
+    env->CallStaticVoidMethod(cls, mid);
+}
+
+RHO_GLOBAL void alert_set_volume_percent(void *arg)
+{
+  JNIEnv *env = jnienv();
+  jclass cls = getJNIClass(RHODES_JAVA_CLASS_ALERT);
+  if (!cls) return;
+  jmethodID mid = getJNIClassStaticMethod(env, cls, "setVolumePercent", "(I)V");
+  if (!mid) return;
+                                                                 
+  jint percent = 50;
+  if (arg)
+    percent = (jint)arg;
+  env->CallStaticVoidMethod(cls, mid, percent);
+}
